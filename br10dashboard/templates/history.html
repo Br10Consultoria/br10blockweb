@@ -1,0 +1,141 @@
+<!-- templates/history.html -->
+{% extends "base.html" %}
+
+{% block title %}Histórico de Atualizações - BR10 DNS Blocklist{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1 class="dashboard-title">Histórico de Atualizações</h1>
+</div>
+
+<div class="actions-card">
+    <div class="card-header">
+        <h5 class="card-title">Ações</h5>
+    </div>
+    <div class="card-body">
+        <div class="actions-container">
+            <button id="btn-refresh" class="action-button refresh-button">
+                <i class="fas fa-sync-alt"></i> Atualizar Histórico
+            </button>
+            <select id="limit-select" class="action-button">
+                <option value="10">Últimas 10 atualizações</option>
+                <option value="20" selected>Últimas 20 atualizações</option>
+                <option value="30">Últimas 30 atualizações</option>
+                <option value="50">Últimas 50 atualizações</option>
+            </select>
+        </div>
+        <div id="action-result" class="action-result"></div>
+    </div>
+</div>
+
+<div class="clients-card">
+    <div class="card-header">
+        <h5 class="card-title">Registros de Atualização</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table id="history-table" class="data-table">
+                <thead>
+                    <tr>
+                        <th>Data/Hora</th>
+                        <th>Status</th>
+                        <th>Origem</th>
+                        <th>Total de Domínios</th>
+                        <th>Exemplos</th>
+                    </tr>
+                </thead>
+                <tbody id="history-body">
+                    <tr>
+                        <td colspan="5" class="loading-data">Carregando histórico...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+$(document).ready(function() {
+    loadHistory();
+    
+    // Botão de atualizar
+    $('#btn-refresh').click(function() {
+        loadHistory();
+    });
+    
+    // Alterar limite
+    $('#limit-select').change(function() {
+        loadHistory();
+    });
+});
+
+// Carregar histórico
+function loadHistory() {
+    const limit = $('#limit-select').val();
+    
+    $.ajax({
+        url: `/api/history?limit=${limit}`,
+        method: 'GET',
+        success: function(data) {
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
+            
+            // Atualizar tabela
+            $('#history-body').empty();
+            
+            if (data.history.length === 0) {
+                $('#history-body').html('<tr><td colspan="5" class="loading-data">Nenhum registro de atualização encontrado</td></tr>');
+                return;
+            }
+            
+            $.each(data.history, function(index, record) {
+                // Formatação do status
+                let statusClass = 'status-active';
+                if (record.status !== 'success') {
+                    statusClass = 'status-offline';
+                }
+                
+                // Exemplos de domínios
+                let examples = '';
+                if (record.domains_sample && record.domains_sample.length > 0) {
+                    examples = record.domains_sample.slice(0, 3).join('<br>');
+                    if (record.domains_sample.length > 3) {
+                        examples += '<br>...';
+                    }
+                } else {
+                    examples = 'Não disponível';
+                }
+                
+                let row = `
+                    <tr>
+                        <td>${record.formatted_time || record.timestamp}</td>
+                        <td><span class="status-badge ${statusClass}">${record.status}</span></td>
+                        <td>${record.source || 'API'}</td>
+                        <td>${record.total_domains?.toLocaleString() || 'N/A'}</td>
+                        <td>${examples}</td>
+                    </tr>
+                `;
+                
+                $('#history-body').append(row);
+            });
+        },
+        error: function(xhr, status, error) {
+            showError('Erro ao carregar histórico: ' + error);
+        }
+    });
+}
+
+// Mostrar erro
+function showError(message) {
+    $('#action-result').html(`
+        <div class="alert alert-danger">
+            <strong>Erro!</strong> ${message}
+        </div>
+    `);
+}
+</script>
+{% endblock %}

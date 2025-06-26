@@ -1,0 +1,628 @@
+<!-- templates/dns_tests.html -->
+{% extends "base.html" %} {% block title %}Testes de DNS - BR10 DNS Blocklist{% endblock %} {% block content %}
+<div class="header">
+    <h1 class="dashboard-title">Testes de DNS</h1>
+</div>
+
+<div class="stats-actions-row">
+    <div class="stats-card">
+        <div class="card-header">
+            <h5 class="card-title">Selecione o Teste</h5>
+        </div>
+        <div class="card-body">
+            <div class="actions-container">
+                <button id="btn-latency-test" class="action-button refresh-button">
+                    <i class="fas fa-tachometer-alt"></i> Teste de Latência
+                </button>
+                <button id="btn-hypercache-test" class="action-button" style="background-color: var(--accent-orange);">
+                    <i class="fas fa-bolt"></i> Teste de Hypercache
+                </button>
+                <button id="btn-cache-test" class="action-button" style="background-color: var(--accent-purple);">
+                    <i class="fas fa-database"></i> Teste de Cache
+                </button>
+                <button id="btn-all-tests" class="action-button sync-button">
+                    <i class="fas fa-play-circle"></i> Executar Todos os Testes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="details-card" id="test-progress-card" style="display: none;">
+    <div class="card-header">
+        <h5 id="test-title" class="card-title">Progresso do Teste</h5>
+    </div>
+    <div class="card-body">
+        <div class="progress-container">
+            <div class="progress-bar-container">
+                <div id="progress-bar" class="progress-bar"></div>
+            </div>
+            <div id="progress-text">Iniciando teste...</div>
+        </div>
+        <div id="log-container" class="log-container">
+            <pre id="test-log"></pre>
+        </div>
+    </div>
+</div>
+
+<div class="clients-card" id="test-results-card" style="display: none;">
+    <div class="card-header">
+        <h5 class="card-title">Resultados do Teste</h5>
+    </div>
+    <div class="card-body">
+        <div id="results-summary" class="results-summary"></div>
+
+        <div id="chart-container" class="chart-container" style="display: none;">
+            <canvas id="results-chart"></canvas>
+        </div>
+
+        <div id="table-container" class="table-container" style="display: none;">
+            <table id="results-table" class="data-table">
+                <thead id="results-table-head">
+                </thead>
+                <tbody id="results-table-body">
+                </tbody>
+            </table>
+        </div>
+
+        <div class="actions-container" style="margin-top: 20px;">
+            <button id="btn-new-test" class="action-button" style="background-color: var(--accent-orange);">
+                <i class="fas fa-redo"></i> Novo Teste
+            </button>
+            <button id="btn-download-results" class="action-button" style="background-color: var(--accent-green);">
+                <i class="fas fa-download"></i> Baixar Resultados
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="clients-card" id="previous-tests-card">
+    <div class="card-header">
+        <h5 class="card-title">Testes Anteriores</h5>
+    </div>
+    <div class="card-body">
+        <div id="previous-tests-container" class="table-container">
+            <table id="previous-tests-table" class="data-table">
+                <thead>
+                    <tr>
+                        <th>Data/Hora</th>
+                        <th>Tipo</th>
+                        <th>Resumo</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="previous-tests-body">
+                    <tr>
+                        <td colspan="4" class="text-center">Carregando testes anteriores...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    .progress-container {
+        margin-bottom: 20px;
+    }
+    
+    .progress-bar-container {
+        width: 100%;
+        height: 20px;
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 10px;
+    }
+    
+    .progress-bar {
+        height: 100%;
+        width: 0%;
+        background-color: var(--accent-green);
+        transition: width 0.3s ease;
+    }
+    
+    .log-container {
+        background-color: rgba(0, 0, 0, 0.2);
+        border-radius: 5px;
+        padding: 15px;
+        max-height: 300px;
+        overflow-y: auto;
+        font-family: 'Courier New', monospace;
+    }
+    
+    .log-container pre {
+        margin: 0;
+        color: #ddd;
+        white-space: pre-wrap;
+    }
+    
+    .results-summary {
+        margin-bottom: 20px;
+        padding: 15px;
+        background-color: rgba(0, 0, 0, 0.2);
+        border-radius: 5px;
+    }
+    
+    .result-success {
+        color: var(--accent-green);
+    }
+    
+    .result-warning {
+        color: var(--accent-orange);
+    }
+    
+    .result-danger {
+        color: var(--accent-red);
+    }
+    
+    .text-center {
+        text-align: center;
+    }
+    
+    .log-info {
+        color: #ddd;
+    }
+    
+    .log-error {
+        color: var(--accent-red);
+    }
+    
+    .log-success {
+        color: var(--accent-green);
+    }
+    
+    .log-warning {
+        color: var(--accent-orange);
+    }
+	
+	.small-button {
+        padding: 5px 10px;
+        font-size: 12px;
+        margin-right: 5px;
+    }
+
+    .btn-view-results {
+        background-color: var(--accent-blue);
+    }
+
+    .btn-download-result {
+        background-color: var(--accent-green);
+    }
+</style>
+{% endblock %} {% block extra_scripts %}
+<script>
+    $(document).ready(function() {
+        let currentTest = 'latency';
+        let testRunning = false;
+        let testResults = {};
+        
+        // Botões de seleção de teste
+        $('#btn-latency-test').click(function() {
+            selectTest('latency');
+            startTest('latency');
+        });
+        
+        $('#btn-hypercache-test').click(function() {
+            selectTest('hypercache');
+            startTest('hypercache');
+        });
+        
+        $('#btn-cache-test').click(function() {
+            selectTest('cache');
+            startTest('cache');
+        });
+        
+        $('#btn-all-tests').click(function() {
+            selectTest('all');
+            startTest('all');
+        });
+        
+        // Botão novo teste
+        $('#btn-new-test').click(function() {
+            resetUI();
+        });
+        
+        // Botão para download de resultados
+        $('#btn-download-results').click(function() {
+            if (!testResults || Object.keys(testResults).length === 0) {
+                alert('Nenhum resultado disponível para download');
+                return;
+            }
+            
+            // Criar blob com os dados JSON
+            const blob = new Blob([JSON.stringify(testResults, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            
+            // Criar link de download e clicar nele
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `teste_dns_${currentTest}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+            document.body.appendChild(a);
+            a.click();
+            
+            // Limpar
+            setTimeout(function() {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 0);
+        });
+        
+        // Função para selecionar o teste
+        function selectTest(testType) {
+            if (testRunning) return;
+            
+            currentTest = testType;
+            
+            // Alterar estilo dos botões
+            $('.action-button').removeClass('active-test');
+            
+            switch (testType) {
+                case 'latency':
+                    $('#btn-latency-test').addClass('active-test');
+                    $('#test-title').text('Teste de Latência DNS');
+                    break;
+                case 'hypercache':
+                    $('#btn-hypercache-test').addClass('active-test');
+                    $('#test-title').text('Teste de Hypercache DNS');
+                    break;
+                case 'cache':
+                    $('#btn-cache-test').addClass('active-test');
+                    $('#test-title').text('Teste de Cache DNS');
+                    break;
+                case 'all':
+                    $('#btn-all-tests').addClass('active-test');
+                    $('#test-title').text('Todos os Testes DNS');
+                    break;
+            }
+        }
+        
+        // Função para iniciar o teste
+        function startTest(testType) {
+            if (testRunning) return;
+            
+            testRunning = true;
+            resetTestResults();
+            
+            // Mostrar card de progresso
+            $('#test-progress-card').show();
+            $('#test-results-card').hide();
+            
+            // Resetar log e progresso
+            $('#test-log').html('');
+            $('#progress-bar').css('width', '0%');
+            $('#progress-text').text('Iniciando teste...');
+            
+            // Adicionar log inicial
+            addLog(`Iniciando teste de Teste de ${getTestName(testType)}...`);
+            
+            // Iniciar o teste via API
+            $.ajax({
+                url: '/api/dns_tests/start',
+                method: 'POST',
+                data: JSON.stringify({
+                    test_type: testType
+                }),
+                contentType: 'application/json',
+                headers: {
+                    'X-CSRFToken': "{{ csrf_token() }}"
+                },
+                success: function(data) {
+                    if (data.error) {
+                       addLog('ERRO: ' + data.error, 'error');
+                       testRunning = false;
+                       return;
+                    }
+                    
+                    // Iniciar polling para obter atualizações
+                    const testId = data.test_id;
+                    addLog(`Teste iniciado com ID: ${testId}`);
+                    pollTestStatus(testId);
+                },
+                error: function(xhr, status, error) {
+                    addLog('ERRO ao iniciar teste: ' + error, 'error');
+                    testRunning = false;
+                }
+            });
+        }
+        
+        // Função para obter nome do teste
+        function getTestName(testType) {
+            switch (testType) {
+                case 'latency': return 'Latência';
+                case 'hypercache': return 'Hypercache';
+                case 'cache': return 'Cache';
+                case 'all': return 'Todos os Testes';
+                default: return testType;
+            }
+        }
+        
+        // Função para verificar status do teste
+        function pollTestStatus(testId) {
+            let lastLogId = 0;
+            
+            const pollInterval = setInterval(function() {
+                $.ajax({
+                    url: '/api/dns_tests/status/' + testId + '?last_log_id=' + lastLogId,
+                    method: 'GET',
+                    success: function(data) {
+                        // Atualizar progresso
+                        $('#progress-bar').css('width', data.progress + '%');
+                        $('#progress-text').text(data.status);
+                        
+                        // Adicionar novas linhas de log
+                        if (data.new_logs && data.new_logs.length > 0) {
+                            data.new_logs.forEach(function(log) {
+                                let type = detectLogType(log);
+                                addLog(log.message, type);
+                            });
+                        }
+                        
+                        if (data.last_log_id !== undefined) {
+                            lastLogId = data.last_log_id;
+                        }
+                        
+                        // Verificar se o teste foi concluído
+                        if (data.completed) {
+                            clearInterval(pollInterval);
+                            testRunning = false;
+                            
+                            addLog('Teste concluído!', 'success');
+                            
+                            // Verificar se há resultados para mostrar
+                            if (data.result_file) {
+                                addLog(`Resultados salvos em: ${data.result_file}`, 'info');
+                                fetchResults(data.result_file);
+                            } else {
+                                addLog('Teste concluído, mas nenhum resultado disponível.', 'warning');
+                            }
+                            
+                            // Atualizar lista de testes anteriores
+                            loadPreviousTests();
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        addLog('ERRO ao verificar status: ' + error, 'error');
+                        clearInterval(pollInterval);
+                        testRunning = false;
+                    }
+                });
+            }, 1000);
+        }
+        
+        // Função para detectar tipo de log
+        function detectLogType(log) {
+            const msg = log.message || '';
+            const type = log.type || '';
+            
+            if (type === 'error' || msg.includes('ERRO') || msg.includes('erro') || msg.includes('falha') || msg.includes('Falha')) {
+                return 'error';
+            } else if (type === 'success' || msg.includes('concluído') || msg.includes('sucesso') || msg.includes('Teste concluído')) {
+                return 'success';
+            } else if (type === 'warning' || msg.includes('AVISO') || msg.includes('aviso')) {
+                return 'warning';
+            } else {
+                return 'info';
+            }
+        }
+        
+        // Função para buscar resultados
+        function fetchResults(resultFile) {
+            $.ajax({
+                url: resultFile,
+                method: 'GET',
+                success: function(data) {
+                    testResults = data;
+                    showTestResults();
+                },
+                error: function(xhr, status, error) {
+                    addLog('ERRO ao obter resultados: ' + error, 'error');
+                }
+            });
+        }
+        
+        // Função para adicionar log
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toTimeString().split(' ')[0];
+            let logClass = `log-${type}`;
+            
+            $('#test-log').append(`<div class="${logClass}">[${timestamp}] ${message}</div>`);
+            
+            // Auto-scroll para o fim do log
+            const logContainer = document.getElementById('log-container');
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        // Função para mostrar resultados do teste
+        function showTestResults() {
+            // Esconder card de progresso
+            $('#test-progress-card').hide();
+            
+            // Mostrar card de resultados
+            $('#test-results-card').show();
+            
+            // Resetar contêineres
+            $('#table-container').hide();
+            $('#chart-container').hide();
+            
+            // Preencher resumo baseado no tipo de teste
+            let summaryHtml = '';
+            
+            if (currentTest === 'latency' || currentTest === 'all') {
+                summaryHtml += `<h3>Teste de Latência DNS</h3>`;
+                
+                if (testResults.summary && testResults.summary.overall) {
+                    summaryHtml += `<p>Tempo médio geral: <strong>${testResults.summary.overall}ms</strong></p>`;
+                }
+                
+                // Mostrar detalhes por tipo de registro se disponível
+                if (testResults.summary) {
+                    summaryHtml += `<h4>Tempos médios por tipo de registro:</h4><ul>`;
+                    
+                    for (const [type, time] of Object.entries(testResults.summary)) {
+                        if (type !== 'overall') {
+                            summaryHtml += `<li>${type}: <strong>${time}ms</strong></li>`;
+                        }
+                    }
+                    
+                    summaryHtml += `</ul>`;
+                }
+                
+                if (testResults.results && testResults.results.length > 0) {
+                    showLatencyTable(testResults.results);
+                }
+            }
+            
+            if (currentTest === 'hypercache' || currentTest === 'all') {
+                summaryHtml += `<h3>Teste de Hypercache DNS</h3>`;
+                
+                if (testResults.summary) {
+                    if (testResults.summary.cache_efficiency) {
+                        summaryHtml += `<p>Eficiência do cache: <strong class="result-success">${testResults.summary.cache_efficiency}</strong></p>`;
+                    }
+                    
+                    if (testResults.summary.avg_improvement_percent) {
+                        summaryHtml += `<p>Melhoria média: <strong>${testResults.summary.avg_improvement_percent}%</strong></p>`;
+                    }
+                }
+            }
+            
+            if (currentTest === 'cache' || currentTest === 'all') {
+                summaryHtml += `<h3>Teste de Cache DNS</h3>`;
+                
+                // Exibir quaisquer dados de resumo disponíveis
+                if (testResults.summary) {
+                    summaryHtml += `<p>Resultados do teste de cache disponíveis.</p>`;
+                }
+                
+                // Se houver conteúdo de log, exibi-lo
+                if (testResults.content) {
+                    summaryHtml += `<div class="log-container"><pre>${testResults.content}</pre></div>`;
+                }
+            }
+            
+            $('#results-summary').html(summaryHtml);
+        }
+        
+        // Função para mostrar tabela de latência
+        function showLatencyTable(results) {
+            $('#table-container').show();
+            
+            // Cabeçalho
+            let headerRow = '<tr><th>Tipo</th><th>Domínio</th><th>Tempo 1</th><th>Tempo 2</th><th>Tempo 3</th><th>Média</th></tr>';
+            $('#results-table-head').html(headerRow);
+            
+            // Corpo da tabela
+            let tableBody = '';
+            
+            results.forEach(result => {
+                tableBody += `<tr>
+                    <td>${result.record_type}</td>
+                    <td>${result.domain}</td>
+                    <td>${result.time1}ms</td>
+                    <td>${result.time2}ms</td>
+                    <td>${result.time3}ms</td>
+                    <td><strong>${result.avg}ms</strong></td>
+                </tr>`;
+            });
+            
+            $('#results-table-body').html(tableBody);
+        }
+        
+        // Função para carregar testes anteriores
+        function loadPreviousTests() {
+            $.ajax({
+                url: '/api/dns_tests/previous',
+                method: 'GET',
+                success: function(data) {
+                    if (data.tests && data.tests.length > 0) {
+                        let tableRows = '';
+                        
+                        data.tests.forEach(test => {
+                            tableRows += `<tr>
+                                <td>${test.timestamp}</td>
+                                <td>${test.type}</td>
+                                <td>${test.summary}</td>
+                                <td>
+                                    <button class="btn-view-results action-button small-button" data-url="${test.result_file}" data-type="${test.type}">
+                                        <i class="fas fa-eye"></i> Ver
+                                    </button>
+                                    <button class="btn-download-result action-button small-button" data-url="${test.result_file}" data-type="${test.type}">
+                                        <i class="fas fa-download"></i> Baixar
+                                    </button>
+                                </td>
+                            </tr>`;
+                        });
+                        
+                        $('#previous-tests-body').html(tableRows);
+                        
+                        // Adicionar evento para visualizar resultados
+                        $('.btn-view-results').click(function(e) {
+                            e.preventDefault();
+                            const resultUrl = $(this).data('url');
+                            currentTest = $(this).data('type');
+                            
+                            // Resetar UI e buscar resultados
+                            resetUI();
+                            
+                            $.ajax({
+                                url: resultUrl,
+                                method: 'GET',
+                                success: function(data) {
+                                    testResults = data;
+                                    $('#test-results-card').show();
+                                    showTestResults();
+                                },
+                                error: function(xhr, status, error) {
+                                    alert('Erro ao obter resultados do teste: ' + error);
+                                }
+                            });
+                        });
+                        
+                        // Adicionar evento para baixar resultados
+                        $('.btn-download-result').click(function(e) {
+                            e.preventDefault();
+                            const resultUrl = $(this).data('url');
+                            const testType = $(this).data('type');
+                            
+                            // Baixar o arquivo diretamente
+                            const a = document.createElement('a');
+                            a.href = resultUrl;
+                            a.download = `teste_dns_${testType}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+                            document.body.appendChild(a);
+                            a.click();
+                            
+                            // Limpar
+                            setTimeout(function() {
+                                document.body.removeChild(a);
+                            }, 0);
+                        });
+                    } else {
+                        $('#previous-tests-body').html('<tr><td colspan="4" class="text-center">Nenhum teste anterior encontrado.</td></tr>');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    $('#previous-tests-body').html('<tr><td colspan="4" class="text-center">Erro ao carregar testes anteriores.</td></tr>');
+                }
+            });
+        }
+        
+        // Função para resetar UI
+        function resetUI() {
+            testRunning = false;
+            $('#test-progress-card').hide();
+            $('#test-results-card').hide();
+            $('#table-container').hide();
+            $('#chart-container').hide();
+        }
+        
+        // Função para resetar resultados
+        function resetTestResults() {
+            testResults = {};
+        }
+        
+        // Carregar testes anteriores ao iniciar
+        loadPreviousTests();
+    });
+</script>
+{% endblock %}

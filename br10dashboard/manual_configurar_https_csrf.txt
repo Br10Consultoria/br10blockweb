@@ -1,0 +1,83 @@
+Como usar o script:
+
+Salve este script em um arquivo, por exemplo configurar_https_csrf.sh
+Torne-o executável: chmod +x configurar_https_csrf.sh
+Execute-o como root: sudo ./configurar_https_csrf.sh
+Quando solicitado, digite o domínio para o qual deseja gerar o certificado
+
+O script realizará as seguintes tarefas:
+
+Instalar e configurar o Nginx como proxy reverso
+Instalar o Certbot e obter certificados Let's Encrypt
+Configurar o redirecionamento HTTP para HTTPS
+Instalar Flask-WTF para proteção CSRF
+Adicionar o código necessário ao app.py
+Reiniciar os serviços
+Testar a configuração HTTPS
+Fornecer instruções para os próximos passos
+
+Lembre-se que, após a execução do script, você ainda precisará 
+adicionar manualmente os tokens CSRF nos formulários HTML, 
+conforme explicado anteriormente.
+
+# no base.html vc adciona ao final substitui o atual:
+{% block extra_scripts %}
+<script>
+    // Adicionar token CSRF em todas as requisições AJAX
+    $(document).ready(function() {
+        var csrf_token = "{{ csrf_token() }}";
+        $.ajaxSetup({
+            beforeSend: function(xhr, settings) {
+                if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                    xhr.setRequestHeader("X-CSRFToken", csrf_token);
+                }
+            }
+        });
+    });
+</script>
+<script>
+// Código para aplicar estilos a botões específicos com base no texto
+document.addEventListener('DOMContentLoaded', function() {
+    // Encontrar todos os botões
+    const buttons = document.querySelectorAll('button');
+    buttons.forEach(button => {
+        const buttonText = button.textContent.toLowerCase();
+        // Botões "Últimas X atualizações" para azul
+        if (buttonText.includes('últimas') || buttonText.includes('atualizações')) {
+            button.style.backgroundColor = '#1d8cf8';
+            button.style.color = 'white';
+        }
+        // Botões "Mostrar" ou "Ordenar" para verde
+        if (buttonText.includes('mostrar') || buttonText.includes('ordenar')) {
+            button.style.backgroundColor = '#00f2c3';
+            button.style.color = '#333';
+        }
+    });
+});
+</script>
+{% endblock %}
+</body>
+</html>
+
+#Você precisa adicionar tokens CSRF em todos os formulários HTML que usam o método POST. 
+#A modificação é simples e deve ser feita dentro da tag <form> de cada arquivo. 
+#Vou mostrar o que fazer nos principais arquivos HTML da sua aplicação:
+# 1. login.html
+#Encontre o formulário:
+#<form action="/login" method="post">
+
+#Adicione o token CSRF logo após a abertura do formulário:
+#<form action="/login" method="post">
+   # <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <!-- resto do formulário continua igual -->
+#2. users.html
+
+#Encontre:
+#<form id="user-form">
+
+#Modifique para:
+
+<form id="user-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <!-- resto do formulário continua igual -->
+

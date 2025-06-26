@@ -1,0 +1,157 @@
+<!-- templates/login.html -->
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - BR10 DNS Blocklist</title>
+    <style>
+        /* Cores e variáveis */
+        :root {
+            --dark-bg: #1e1e2f;
+            --card-bg: #27293d;
+            --text-primary: #ffffff;
+            --text-secondary: #b3b3b3;
+            --accent-blue: #1d8cf8;
+            --accent-green: #00f2c3;
+            --accent-red: #fd5d93;
+            --accent-orange: #ff8d72;
+            --accent-purple: #ba54f5;
+            --border-color: #2b3553;
+        }
+        
+        /* Estilos gerais */
+        body {
+            background-color: var(--dark-bg);
+            color: var(--text-primary);
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .login-container {
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .login-card {
+            background-color: var(--card-bg);
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+        
+        .login-header {
+            background-color: var(--accent-purple);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .login-title {
+            margin: 0;
+            font-size: 1.5em;
+        }
+        
+        .login-body {
+            padding: 30px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 5px;
+            border: 1px solid var(--border-color);
+            background-color: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            font-size: 1em;
+            box-sizing: border-box;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+        
+        .login-button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 5px;
+            background-color: var(--accent-purple);
+            color: white;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .login-button:hover {
+            background-color: #a13dd4;
+        }
+        
+        .brand-logo {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2em;
+            font-weight: bold;
+            color: var(--accent-purple);
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            color: white;
+        }
+        
+        .alert-danger {
+            background-color: var(--accent-red);
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="brand-logo">BR10 DNS Blocklist</div>
+        
+        <div class="login-card">
+            <div class="login-header">
+                <h2 class="login-title">Login</h2>
+            </div>
+            <div class="login-body">
+                {% for category, message in get_flashed_messages(with_categories=true) %}
+                <div class="alert alert-{{ category }}">
+                    {{ message }}
+                </div>
+                {% endfor %}
+                
+                <form action="/login" method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-group">
+                        <label for="username" class="form-label">Usuário</label>
+                        <input type="text" id="username" name="username" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password" class="form-label">Senha</label>
+                        <input type="password" id="password" name="password" class="form-input" required>
+                    </div>
+                    <button type="submit" class="login-button">Entrar</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,329 @@
+<!-- templates/dashboard.html -->
+{% extends "base.html" %} {% block extra_styles %}
+<style>
+    .ip-cache-stats {
+        font-size: 0.65em;
+        line-height: 1.4;
+        text-align: center;
+    }
+</style>
+{% endblock %} {% block title %}Dashboard - BR10 DNS Blocklist{% endblock %} {% block content %}
+<div class="header">
+    <h1 class="dashboard-title">Dashboard de Bloqueio de Dominios</h1>
+</div>
+
+<div class="indicator-container">
+    <div class="indicator-card">
+        <div class="indicator-icon">
+            <i class="fas fa-ban"></i>
+        </div>
+        <h2 id="total-domains" class="indicator-value">-</h2>
+        <p class="indicator-label">Dominios Bloqueados</p>
+    </div>
+    <div class="indicator-card">
+        <div class="indicator-icon">
+            <i class="fas fa-network-wired"></i>
+        </div>
+        <h2 id="ip-distribution" class="indicator-value">-</h2>
+        <p class="indicator-label">Estatisticas IPv4/IPv6</p>
+    </div>
+
+    <div class="indicator-card">
+        <div class="indicator-icon">
+            <i class="fas fa-tachometer-alt"></i>
+        </div>
+        <h2 id="cache-hit-ratio" class="indicator-value">-</h2>
+        <p class="indicator-label">Cache Hit Ratio</p>
+    </div>
+
+    <div class="indicator-card">
+        <div class="indicator-icon">
+            <i class="fas fa-sync-alt"></i>
+        </div>
+        <h2 id="total-queries" class="indicator-value">-</h2>
+        <p class="indicator-label">Total de Consultas</p>
+    </div>
+</div>
+<div class="stats-actions-row">
+    <div class="stats-card">
+        <div class="card-header">
+            <h5 class="card-title">Estatisticas DNS</h5>
+        </div>
+        <div class="card-body">
+            <div class="stats-container">
+                <div class="stat-box">
+                    <h2 id="dns-uptime">-</h2>
+                    <p>Uptime</p>
+                </div>
+                <div class="stat-box">
+                    <h2 id="dns-cache-hits">-</h2>
+                    <p>Cache Hits</p>
+                </div>
+                <div class="stat-box">
+                    <h2 id="dns-cache-misses">-</h2>
+                    <p>Cache Misses</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="actions-card">
+        <div class="card-header">
+            <h5 class="card-title">Acoes</h5>
+        </div>
+        <div class="card-body">
+            <div class="actions-container">
+                <button id="btn-refresh" class="action-button refresh-button" onclick="loadStats(); loadCacheByIpStats(); loadTopDomains(); return false;">
+                    <i class="fas fa-sync-alt"></i> Atualizar Estatísticas
+                </button>
+                <button id="btn-update-list" class="action-button sync-button" onclick="window.location.href='/domains'; return false;">
+                    <i class="fas fa-list"></i> Ver Lista de Bloqueios
+                </button>
+                <button id="btn-view-clients" class="action-button" style="background-color: var(--accent-purple);" onclick="window.location.href='/clients'; return false;">
+                    <i class="fas fa-users"></i> Monitorar Clientes DNS
+                </button>
+            </div>
+            <div id="action-result" class="action-result"></div>
+        </div>
+    </div>
+</div>
+<div class="clients-card">
+    <div class="card-header">
+        <h5 class="card-title">Principais Dominios Bloqueados</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table id="domains-table" class="data-table">
+                <thead>
+                    <tr>
+                        <th>Dominio</th>
+                    </tr>
+                </thead>
+                <tbody id="domains-body">
+                    <tr>
+                        <td class="loading-data">Carregando dados...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="clients-card">
+    <div class="card-header">
+        <h5 class="card-title">Estatisticas de Resposta</h5>
+    </div>
+    <div class="card-body">
+        <div class="chart-container">
+            <canvas id="response-times-chart"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %} {% block extra_scripts %}
+<script>
+    // Função para carregar estatísticas de cache por tipo de IP
+    function loadCacheByIpStats() {
+        $.ajax({
+            url: '/api/stats/cache-by-ip',
+            method: 'GET',
+            success: function(data) {
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+                
+                // Exibir estatísticas de cache por tipo de IP
+                $('#ip-distribution').html(`
+                    <div class="ip-cache-stats">
+                        <div>IPv4: ${data.ipv4_hit_percent || 0}% hit</div>
+                        <div>IPv6: ${data.ipv6_hit_percent || 0}% hit</div>
+                    </div>
+                `);
+            },
+            error: function(xhr, status, error) {
+                console.error('Erro ao carregar estatísticas de cache:', error);
+                // Em caso de erro, mostrar valor padrão
+                $('#ip-distribution').html(`
+                    <div class="ip-cache-stats">
+                        <div>IPv4: 0% hit</div>
+                        <div>IPv6: 0% hit</div>
+                    </div>
+                `);
+            }
+        });
+    }
+    $(document).ready(function() {
+        // Carregamento inicial
+        loadStats();
+        loadCacheByIpStats();
+        loadTopDomains();
+        
+        // Atualização automática a cada 30 segundos
+        setInterval(loadStats, 30000);
+        setInterval(loadCacheByIpStats, 30000);
+    });
+    
+    // Carregar estatisticas gerais
+    function loadStats() {
+        $.ajax({
+            url: '/api/stats',
+            method: 'GET',
+            success: function(data) {
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+                
+                // Atualizar indicadores
+                $('#total-domains').text(data.blocked_domains_count.toLocaleString());
+                $('#cache-hit-ratio').text(data.unbound.cache_hit_ratio);
+                $('#total-queries').text(parseInt(data.unbound.queries).toLocaleString());
+                
+                // Estatisticas DNS
+                $('#dns-uptime').text(data.unbound.uptime);
+                $('#dns-cache-hits').text(parseInt(data.unbound.cache_hits).toLocaleString());
+                $('#dns-cache-misses').text(parseInt(data.unbound.cache_misses).toLocaleString());
+                
+                // Grafico de tempos de resposta
+                renderResponseTimesChart(data.unbound.response_times);
+            },
+            error: function(xhr, status, error) {
+                showError('Erro ao carregar estatisticas: ' + error);
+            }
+        });
+    }
+    // Carregar principais dominios
+    function loadTopDomains() {
+        $.ajax({
+            url: '/api/domains?per_page=10',
+            method: 'GET',
+            success: function(data) {
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+                
+                // Atualizar tabela
+                $('#domains-body').empty();
+                
+                if (data.domains.length === 0) {
+                    $('#domains-body').html('<tr><td class="loading-data">Nenhum dominio bloqueado</td></tr>');
+                    return;
+                }
+                
+                $.each(data.domains, function(index, domain) {
+                    let row = `
+                        <tr>
+                            <td>${domain}</td>
+                        </tr>
+                    `;
+                    
+                    $('#domains-body').append(row);
+                });
+            },
+            error: function(xhr, status, error) {
+                showError('Erro ao carregar dominios: ' + error);
+            }
+        });
+    }
+    
+    // Mostrar erro
+    function showError(message) {
+        $('#action-result').html(`
+            <div class="alert alert-danger">
+                <strong>Erro!</strong> ${message}
+            </div>
+        `);
+    }
+    
+    // Mostrar sucesso
+    function showSuccess(message) {
+        $('#action-result').html(`
+            <div class="alert alert-success">
+                <strong>Sucesso!</strong> ${message}
+            </div>
+        `);
+    }
+    
+    // Renderizar grafico de tempos de resposta
+    function renderResponseTimesChart(responseTimes) {
+        if (!responseTimes || Object.keys(responseTimes).length === 0) {
+            return;
+        }
+        
+        const ctx = document.getElementById('response-times-chart').getContext('2d');
+        
+        // Converter dados para formato do Chart.js
+        const labels = [];
+        const data = [];
+        
+        // Ordenar tempos de resposta
+        const sortedTimes = Object.entries(responseTimes)
+            .sort((a, b) => {
+                // Extrair numeros das strings (exemplo: "0.001.to.002" -> 0.001)
+                const aTime = parseFloat(a[0].match(/[\d.]+/)[0]);
+                const bTime = parseFloat(b[0].match(/[\d.]+/)[0]);
+                return aTime - bTime;
+            });
+        
+        // Adicionar dados ordenados
+        sortedTimes.forEach(([timeRange, count]) => {
+            labels.push(timeRange);
+            data.push(count);
+        });
+        
+        if (window.responseChart) {
+            window.responseChart.destroy();
+        }
+        
+        window.responseChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Consultas por Tempo de Resposta (ms)',
+                    data: data,
+                    backgroundColor: 'rgba(29, 140, 248, 0.6)',
+                    borderColor: 'rgba(29, 140, 248, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            color: '#ffffff'
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Distribuicao de Tempos de Resposta',
+                        color: '#ffffff'
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            color: '#b3b3b3'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        }
+                    },
+                    y: {
+                        ticks: {
+                            color: '#b3b3b3'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,353 @@
+<!-- templates/clients.html -->
+{% extends "base.html" %}
+
+{% block title %}Clientes DNS - BR10 DNS Blocklist{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1 class="dashboard-title">Monitoramento de Clientes DNS</h1>
+</div>
+
+<div class="stats-card">
+    <div class="card-header">
+        <h5 class="card-title">Estatísticas Gerais</h5>
+    </div>
+    <div class="card-body">
+        <div class="stats-container">
+            <div class="stat-box">
+                <h2 id="total-clients">-</h2>
+                <p>Total de Clientes</p>
+            </div>
+            <div class="stat-box">
+                <h2 id="total-queries">-</h2>
+                <p>Total de Consultas</p>
+            </div>
+            <div class="stat-box">
+                <h2 id="avg-queries">-</h2>
+                <p>Média por Cliente</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="actions-card">
+    <div class="card-header">
+        <h5 class="card-title">Ações</h5>
+    </div>
+    <div class="card-body">
+        <div class="actions-container">
+            <button id="btn-refresh" class="action-button refresh-button">
+                <i class="fas fa-sync-alt"></i> Atualizar Dados
+            </button>
+            <button id="btn-clear-cache" class="action-button" style="background-color: var(--accent-orange);">
+                <i class="fas fa-trash-alt"></i> Limpar Cache
+            </button>
+            <select id="limit-select" class="action-button">
+                <option value="50">Mostrar 50 clientes</option>
+                <option value="100" selected>Mostrar 100 clientes</option>
+                <option value="200">Mostrar 200 clientes</option>
+                <option value="500">Mostrar todos os clientes</option>
+            </select>
+            <select id="sort-select" class="action-button">
+                <option value="queries">Ordenar por Total de Consultas</option>
+                <option value="hits">Ordenar por Cache Hits</option>
+                <option value="misses">Ordenar por Cache Misses</option>
+                <option value="ratio">Ordenar por Hit Ratio</option>
+            </select>
+        </div>
+        <div id="action-result" class="action-result"></div>
+    </div>
+</div>
+
+<div class="clients-card">
+    <div class="card-header">
+        <h5 class="card-title">Clientes DNS</h5>
+    </div>
+    <div class="card-body">
+        <div class="search-container">
+            <input type="text" id="search-input" class="search-input" placeholder="Filtrar por IP...">
+            <button id="search-button" class="search-button">
+                <i class="fas fa-search"></i> Buscar
+            </button>
+        </div>
+        <div class="table-container">
+            <table id="clients-table" class="data-table">
+                <thead>
+                    <tr>
+                        <th>IP do Cliente</th>
+                        <th>Hostname</th>
+                        <th>Total de Consultas</th>
+                        <th>Cache Hits</th>
+                        <th>Cache Misses</th>
+                        <th>Hit Ratio</th>
+                        <th>Última Consulta</th>
+                    </tr>
+                </thead>
+                <tbody id="clients-body">
+                    <tr>
+                        <td colspan="7" class="loading-data">Carregando dados dos clientes...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="details-card">
+    <div class="card-header">
+        <h5 class="card-title">Distribuição de Consultas</h5>
+    </div>
+    <div class="card-body">
+        <div class="chart-container">
+            <canvas id="clients-chart"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+$(document).ready(function() {
+    loadClients();
+    
+    // Atualização automática a cada 60 segundos
+    setInterval(loadClients, 60000);
+    
+    // Botão de atualizar
+    $('#btn-refresh').click(function() {
+        // Adicionar parâmetro para forçar atualização ignorando o cache
+        loadClients(true);
+        showSuccess("Dados atualizados com base nos logs mais recentes.");
+    });
+    
+    // Botão de limpar cache
+    $('#btn-clear-cache').click(function() {
+        clearCache();
+    });
+    
+    // Alterar limite
+    $('#limit-select').change(function() {
+        loadClients();
+    });
+    
+    // Alterar ordenação
+    $('#sort-select').change(function() {
+        loadClients();
+    });
+    
+    // Busca
+    $('#search-button').click(function() {
+        loadClients();
+    });
+    
+    // Enter na busca
+    $('#search-input').keypress(function(e) {
+        if (e.which === 13) {
+            loadClients();
+        }
+    });
+});
+
+// Carregar clientes
+function loadClients(forceRefresh = false) {
+    const limit = $('#limit-select').val();
+    const sort = $('#sort-select').val();
+    const search = $('#search-input').val().trim();
+    
+    // Construir URL com parâmetros
+    let url = `/api/clients?limit=${limit}&sort=${sort}`;
+    if (search) {
+        url += `&search=${encodeURIComponent(search)}`;
+    }
+    
+    // Adicionar parâmetro para forçar refresh
+    if (forceRefresh) {
+        url += `&refresh=true`;
+    }
+    
+    $.ajax({
+        url: url,
+        method: 'GET',
+        success: function(data) {
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
+            
+            // Atualizar estatísticas
+            $('#total-clients').text(data.total_clients.toLocaleString());
+            $('#total-queries').text(data.total_queries.toLocaleString());
+            
+            // Calcular média de consultas por cliente
+            const avgQueries = data.total_clients > 0 ? 
+                Math.round(data.total_queries / data.total_clients) : 0;
+            $('#avg-queries').text(avgQueries.toLocaleString());
+            
+            // Atualizar tabela
+            $('#clients-body').empty();
+            
+            if (data.clients.length === 0) {
+                let message = search 
+                    ? `Nenhum cliente encontrado para "${search}"`
+                    : 'Nenhum cliente registrado';
+                $('#clients-body').html(`<tr><td colspan="7" class="loading-data">${message}</td></tr>`);
+                return;
+            }
+            
+            $.each(data.clients, function(index, client) {
+                // Calcular hit ratio
+                const hitRatio = client.total_queries > 0 ? 
+                    ((client.cache_hits / client.total_queries) * 100).toFixed(2) + '%' : 
+                    '0.00%';
+                
+                // Formatar última consulta
+                const lastQuery = client.last_query_time || '-';
+                
+                let row = `
+                    <tr>
+                        <td>${client.ip}</td>
+                        <td>${client.hostname || '-'}</td>
+                        <td>${client.total_queries.toLocaleString()}</td>
+                        <td>${client.cache_hits.toLocaleString()}</td>
+                        <td>${client.cache_misses.toLocaleString()}</td>
+                        <td>${hitRatio}</td>
+                        <td>${lastQuery}</td>
+                    </tr>
+                `;
+                
+                $('#clients-body').append(row);
+            });
+            
+            // Atualizar gráfico
+            renderClientsChart(data.clients);
+        },
+        error: function(xhr, status, error) {
+            showError('Erro ao carregar dados dos clientes: ' + error);
+        }
+    });
+}
+
+// Renderizar gráfico de clientes
+function renderClientsChart(clients) {
+    if (!clients || clients.length === 0) {
+        return;
+    }
+    
+    const ctx = document.getElementById('clients-chart').getContext('2d');
+    
+    // Pegar os 10 principais clientes por consultas
+    const topClients = clients.slice(0, 10);
+    
+    // Preparar dados para o gráfico
+    const labels = topClients.map(client => client.ip);
+    const hitData = topClients.map(client => client.cache_hits);
+    const missData = topClients.map(client => client.cache_misses);
+    
+    if (window.clientsChart) {
+        window.clientsChart.destroy();
+    }
+    
+    window.clientsChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Cache Hits',
+                    data: hitData,
+                    backgroundColor: 'rgba(0, 242, 195, 0.6)',
+                    borderColor: 'rgba(0, 242, 195, 1)',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Cache Misses',
+                    data: missData,
+                    backgroundColor: 'rgba(253, 93, 147, 0.6)',
+                    borderColor: 'rgba(253, 93, 147, 1)',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        color: '#ffffff'
+                    }
+                },
+                title: {
+                    display: true,
+                    text: 'Top 10 Clientes - Hits vs Misses',
+                    color: '#ffffff'
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: '#b3b3b3'
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    }
+                },
+                y: {
+                    ticks: {
+                        color: '#b3b3b3'
+                    },
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    },
+                    beginAtZero: true,
+                    stacked: false
+                }
+            }
+        }
+    });
+}
+
+// Mostrar erro
+function showError(message) {
+    $('#action-result').html(`
+        <div class="alert alert-danger">
+            <strong>Erro!</strong> ${message}
+        </div>
+    `);
+}
+
+// Mostrar sucesso
+function showSuccess(message) {
+    $('#action-result').html(`
+        <div class="alert alert-success">
+            <strong>Sucesso!</strong> ${message}
+        </div>
+    `);
+    
+    // Auto-esconder após 5 segundos
+    setTimeout(function() {
+        $('#action-result').html('');
+    }, 5000);
+}
+
+// Limpar cache
+function clearCache() {
+    $.ajax({
+        url: '/api/clients/clear-cache',
+        method: 'POST',
+        success: function(response) {
+            if (response.status === 'success') {
+                showSuccess("Cache limpo com sucesso. Atualizando dados...");
+                loadClients(true);
+            } else {
+                showError(response.message || "Erro ao limpar cache");
+            }
+        },
+        error: function(xhr, status, error) {
+            showError("Erro ao limpar cache: " + error);
+        }
+    });
+}
+</script>
+{% endblock %}

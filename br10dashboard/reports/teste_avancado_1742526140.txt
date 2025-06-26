@@ -1,0 +1,36 @@
+=========================================================
+RELATÓRIO DE TESTES AVANÇADOS DNS - 21/03/2025 00:02:20
+=========================================================
+
+=== INFORMAÇÕES DO SISTEMA ===
+Sistema Operacional: Debian GNU/Linux 12 (bookworm)
+Kernel: 6.1.0-32-amd64
+
+Recursos do Sistema:
+CPU: 16 cores
+
+Unbound:
+Version 1.17.1
+Status: Active: active (running) since Thu 2025-03-20 01:02:39 -03; 22h ago
+
+
+=== RESULTADOS DO TESTE DE STRESS DNS ===
+Total de consultas: 10000
+Consultas bem-sucedidas: 10000
+Consultas falhas: 0
+Tempo total: 32.01 segundos
+Taxa de consultas: 312.44 consultas/segundo
+Taxa de sucesso: 100.00%
+
+Avaliação: Excelente - O servidor consegue processar mais de 100 consultas por segundo
+
+Uso de recursos:
+CPU antes do teste: 0.1%
+CPU após o teste: 0.1%
+Memória antes do teste: 1.7%
+Memória após o teste: 1.7%
+
+=========================================================
+Relatório gerado em: 21/03/2025 00:02:20
+BR10 DNS Advanced Testing Tool
+=========================================================

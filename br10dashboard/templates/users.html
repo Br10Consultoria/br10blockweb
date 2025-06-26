@@ -1,0 +1,252 @@
+<!-- templates/users.html -->
+{% extends "base.html" %}
+
+{% block title %}Gerenciamento de Usuários - BR10 DNS Blocklist{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1 class="dashboard-title">Gerenciamento de Usuários</h1>
+</div>
+
+<!-- Só mostrar para administradores -->
+{% if session.user.role == 'admin' %}
+
+<div class="actions-card">
+    <div class="card-header">
+        <h5 class="card-title">Adicionar/Editar Usuário</h5>
+    </div>
+    <div class="card-body">
+        <form id="user-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label class="form-label" for="username">Nome de Usuário</label>
+                <input type="text" id="username" class="form-input" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="password">Senha</label>
+                <input type="password" id="password" class="form-input" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="role">Função</label>
+                <select id="role" class="form-input">
+                    <option value="user">Usuário</option>
+                    <option value="admin">Administrador</option>
+                </select>
+            </div>
+            <button type="submit" class="action-button refresh-button">
+                <i class="fas fa-save"></i> Salvar Usuário
+            </button>
+        </form>
+        <div id="form-result" class="action-result"></div>
+    </div>
+</div>
+
+<div class="clients-card">
+    <div class="card-header">
+        <h5 class="card-title">Usuários do Sistema</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table id="users-table" class="data-table">
+                <thead>
+                    <tr>
+                        <th>Nome de Usuário</th>
+                        <th>Função</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="users-body">
+                    <tr>
+                        <td colspan="3" class="loading-data">Carregando usuários...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<div class="alert alert-danger">
+    <strong>Acesso negado!</strong> Você não tem permissão para gerenciar usuários.
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+$(document).ready(function() {
+    // Carregar usuários
+    loadUsers();
+    
+    // Enviar formulário
+    $('#user-form').submit(function(e) {
+        e.preventDefault();
+        saveUser();
+    });
+});
+
+// Carregar usuários
+function loadUsers() {
+    $.ajax({
+        url: '/api/users',
+        method: 'GET',
+        success: function(data) {
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
+            
+            // Atualizar tabela
+            $('#users-body').empty();
+            
+            if (data.users.length === 0) {
+                $('#users-body').html('<tr><td colspan="3" class="loading-data">Nenhum usuário encontrado</td></tr>');
+                return;
+            }
+            
+            // Nome do usuário atual para evitar auto-exclusão
+            const currentUser = '{{ session.user.username }}';
+            
+            $.each(data.users, function(index, user) {
+                let deleteButton = '';
+                if (user.username !== currentUser) {
+                    deleteButton = `<button class="table-button btn-danger" onclick="deleteUser('${user.username}')">
+                                    <i class="fas fa-trash"></i> Excluir
+                                </button>`;
+                }
+                
+                let row = `
+                    <tr>
+                        <td>${user.username}</td>
+                        <td>${user.role === 'admin' ? 'Administrador' : 'Usuário'}</td>
+                        <td>
+                            <button class="table-button btn-info" onclick="editUser('${user.username}', '${user.role}')">
+                                <i class="fas fa-edit"></i> Editar
+                            </button>
+                            ${deleteButton}
+                        </td>
+                    </tr>
+                `;
+                
+                $('#users-body').append(row);
+            });
+        },
+        error: function(xhr, status, error) {
+            showError('Erro ao carregar usuários: ' + error);
+        }
+    });
+}
+
+// Editar usuário
+function editUser(username, role) {
+    $('#username').val(username);
+    $('#role').val(role);
+    $('#password').val('').attr('placeholder', 'Digite nova senha para alterar');
+    $('#password').removeAttr('required'); // Senha não é obrigatória na edição
+}
+
+// Salvar usuário
+function saveUser() {
+    const username = $('#username').val().trim();
+    const password = $('#password').val();
+    const role = $('#role').val();
+    
+    // Validação básica
+    if (!username) {
+        showError('Nome de usuário é obrigatório');
+        return;
+    }
+    
+    // Preparar dados
+    const userData = {
+        username: username,
+        role: role
+    };
+    
+    // Incluir senha apenas se foi fornecida
+    if (password) {
+        userData.password = password;
+    } else if (!$('#username').data('editing')) {
+        showError('Senha é obrigatória para novos usuários');
+        return;
+    }
+    
+    // Enviar para API
+    $.ajax({
+        url: '/api/users',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(userData),
+        success: function(response) {
+            if (response.error) {
+                showError(response.error);
+                return;
+            }
+            
+            showSuccess(response.message || 'Usuário salvo com sucesso');
+            
+            // Limpar formulário
+            $('#user-form')[0].reset();
+            $('#password').attr('required', 'required');
+            
+            // Recarregar lista
+            loadUsers();
+        },
+        error: function(xhr, status, error) {
+            showError('Erro ao salvar usuário: ' + error);
+        }
+    });
+}
+
+// Excluir usuário
+function deleteUser(username) {
+    if (!confirm('Tem certeza que deseja excluir o usuário ' + username + '?')) {
+        return;
+    }
+    
+    $.ajax({
+        url: '/api/users',
+        method: 'DELETE',
+        contentType: 'application/json',
+        data: JSON.stringify({ username: username }),
+        success: function(response) {
+            if (response.error) {
+                showError(response.error);
+                return;
+            }
+            
+            showSuccess(response.message || 'Usuário excluído com sucesso');
+            
+            // Recarregar lista
+            loadUsers();
+        },
+        error: function(xhr, status, error) {
+            showError('Erro ao excluir usuário: ' + error);
+        }
+    });
+}
+
+// Mostrar erro
+function showError(message) {
+    $('#form-result').html(`
+        <div class="alert alert-danger">
+            <strong>Erro!</strong> ${message}
+        </div>
+    `);
+}
+
+// Mostrar sucesso
+function showSuccess(message) {
+    $('#form-result').html(`
+        <div class="alert alert-success">
+            <strong>Sucesso!</strong> ${message}
+        </div>
+    `);
+    
+    // Auto-esconder após 5 segundos
+    setTimeout(function() {
+        $('#form-result').html('');
+    }, 5000);
+}
+</script>
+{% endblock %}

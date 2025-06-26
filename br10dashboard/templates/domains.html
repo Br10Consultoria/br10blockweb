@@ -1,0 +1,254 @@
+<!-- templates/domains.html -->
+{% extends "base.html" %}
+
+{% block title %}Domínios Bloqueados - BR10 DNS Blocklist{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1 class="dashboard-title">Domínios Bloqueados</h1>
+</div>
+
+<div class="stats-card">
+    <div class="card-header">
+        <h5 class="card-title">Informações da Lista</h5>
+    </div>
+    <div class="card-body">
+        <div class="stats-container">
+            <div class="stat-box">
+                <h2 id="total-domains">-</h2>
+                <p>Total de Domínios</p>
+            </div>
+            <div class="stat-box">
+                <h2 id="last-update">-</h2>
+                <p>Última Atualização</p>
+            </div>
+            <div class="stat-box">
+                <h2 id="zone-size">-</h2>
+                <p>Tamanho do Arquivo</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="actions-card">
+    <div class="card-header">
+        <h5 class="card-title">Filtrar Domínios</h5>
+    </div>
+    <div class="card-body">
+        <div class="search-container">
+            <input type="text" id="search-input" class="search-input" placeholder="Digite parte do domínio para filtrar...">
+            <button id="search-button" class="search-button">
+                <i class="fas fa-search"></i> Buscar
+            </button>
+        </div>
+        <div id="search-result" class="action-result"></div>
+    </div>
+</div>
+
+<div class="clients-card">
+    <div class="card-header">
+        <h5 class="card-title">Lista de Domínios Bloqueados</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table id="domains-table" class="data-table">
+                <thead>
+                    <tr>
+                        <th>Domínio</th>
+                    </tr>
+                </thead>
+                <tbody id="domains-body">
+                    <tr>
+                        <td class="loading-data">Carregando domínios...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="pagination" id="pagination">
+            <!-- Paginação será inserida via JavaScript -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let currentPage = 1;
+let totalPages = 1;
+let searchQuery = '';
+
+$(document).ready(function() {
+    loadDomainsStats();
+    loadDomains(1);
+    
+    // Busca
+    $('#search-button').click(function() {
+        searchQuery = $('#search-input').val().trim();
+        loadDomains(1);
+    });
+    
+    // Enter na busca
+    $('#search-input').keypress(function(e) {
+        if (e.which === 13) {
+            searchQuery = $('#search-input').val().trim();
+            loadDomains(1);
+        }
+    });
+});
+
+// Carregar estatísticas
+function loadDomainsStats() {
+    $.ajax({
+        url: '/api/stats',
+        method: 'GET',
+        success: function(data) {
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
+            
+            $('#total-domains').text(data.blocked_domains_count.toLocaleString());
+            
+            if (data.zone_file) {
+                $('#last-update').text(data.zone_file.last_modified || '-');
+                
+                // Formatar tamanho do arquivo
+                const zoneSize = data.zone_file.zone_file_size;
+                if (zoneSize) {
+                    let formattedSize = '';
+                    if (zoneSize >= 1048576) {
+                        formattedSize = (zoneSize / 1048576).toFixed(2) + ' MB';
+                    } else if (zoneSize >= 1024) {
+                        formattedSize = (zoneSize / 1024).toFixed(2) + ' KB';
+                    } else {
+                        formattedSize = zoneSize + ' bytes';
+                    }
+                    $('#zone-size').text(formattedSize);
+                } else {
+                    $('#zone-size').text('-');
+                }
+            }
+        },
+        error: function(xhr, status, error) {
+            showError('Erro ao carregar estatísticas: ' + error);
+        }
+    });
+}
+
+// Carregar domínios
+function loadDomains(page, perPage = 50) {
+    currentPage = page;
+    
+    // Construir URL com parâmetros
+    let url = `/api/domains?page=${page}&per_page=${perPage}`;
+    if (searchQuery) {
+        url += `&search=${encodeURIComponent(searchQuery)}`;
+    }
+    
+    $.ajax({
+        url: url,
+        method: 'GET',
+        success: function(data) {
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
+            
+            // Atualizar tabela
+            $('#domains-body').empty();
+            
+            if (data.domains.length === 0) {
+                let message = searchQuery 
+                    ? `Nenhum domínio encontrado para "${searchQuery}"`
+                    : 'Nenhum domínio bloqueado';
+                $('#domains-body').html(`<tr><td class="loading-data">${message}</td></tr>`);
+                return;
+            }
+            
+            $.each(data.domains, function(index, domain) {
+                let row = `
+                    <tr>
+                        <td>${domain}</td>
+                    </tr>
+                `;
+                
+                $('#domains-body').append(row);
+            });
+            
+            // Atualizar paginação
+            totalPages = data.total_pages;
+            updatePagination(page, totalPages);
+            
+            // Atualizar resultado da busca
+            if (searchQuery) {
+                $('#search-result').html(`
+                    <div class="alert alert-success">
+                        <strong>Encontrados ${data.total.toLocaleString()} domínios</strong> para "${searchQuery}"
+                    </div>
+                `);
+            } else {
+                $('#search-result').html('');
+            }
+        },
+        error: function(xhr, status, error) {
+            showError('Erro ao carregar domínios: ' + error);
+        }
+    });
+}
+
+// Atualizar paginação
+function updatePagination(currentPage, totalPages) {
+    const pagination = $('#pagination');
+    pagination.empty();
+    
+    if (totalPages <= 1) {
+        return;
+    }
+    
+    // Adicionar link para primeira página
+    pagination.append(`<span class="pagination-item" data-page="1"><i class="fas fa-angle-double-left"></i></span>`);
+    
+    // Adicionar link para página anterior
+    if (currentPage > 1) {
+        pagination.append(`<span class="pagination-item" data-page="${currentPage - 1}"><i class="fas fa-angle-left"></i></span>`);
+    }
+    
+    // Determinar quais páginas mostrar
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, startPage + 4);
+    
+    if (endPage - startPage < 4 && startPage > 1) {
+        startPage = Math.max(1, endPage - 4);
+    }
+    
+    // Adicionar links para páginas
+    for (let i = startPage; i <= endPage; i++) {
+        const activeClass = i === currentPage ? 'active' : '';
+        pagination.append(`<span class="pagination-item ${activeClass}" data-page="${i}">${i}</span>`);
+    }
+    
+    // Adicionar link para próxima página
+    if (currentPage < totalPages) {
+        pagination.append(`<span class="pagination-item" data-page="${currentPage + 1}"><i class="fas fa-angle-right"></i></span>`);
+    }
+    
+    // Adicionar link para última página
+    pagination.append(`<span class="pagination-item" data-page="${totalPages}"><i class="fas fa-angle-double-right"></i></span>`);
+    
+    // Adicionar eventos de clique
+    $('.pagination-item').click(function() {
+        const page = $(this).data('page');
+        loadDomains(page);
+    });
+}
+
+// Mostrar erro
+function showError(message) {
+    $('#search-result').html(`
+        <div class="alert alert-danger">
+            <strong>Erro!</strong> ${message}
+        </div>
+    `);
+}
+</script>
+{% endblock %}

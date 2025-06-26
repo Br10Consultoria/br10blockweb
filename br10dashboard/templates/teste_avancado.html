@@ -1,0 +1,637 @@
+<!-- templates/teste_avancado.html -->
+{% extends "base.html" %}
+
+{% block title %}Testes Avançados - BR10 DNS Blocklist{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1 class="dashboard-title">Testes Avançados de DNS</h1>
+</div>
+
+<div class="stats-actions-row">
+    <div class="stats-card">
+        <div class="card-header">
+            <h5 class="card-title">Selecione o Teste</h5>
+        </div>
+        <div class="card-body">
+            <div class="actions-container">
+                <button id="btn-stress-test" class="action-button refresh-button">
+                    <i class="fas fa-tachometer-alt"></i> Teste de Stress DNS
+                </button>
+                <button id="btn-leak-test" class="action-button" style="background-color: var(--accent-orange);">
+                    <i class="fas fa-shield-alt"></i> Teste de Vazamento DNS
+                </button>
+                <button id="btn-comparative-test" class="action-button" style="background-color: var(--accent-purple);">
+                    <i class="fas fa-balance-scale"></i> Teste Comparativo
+                </button>
+                <button id="btn-all-tests" class="action-button sync-button">
+                    <i class="fas fa-play-circle"></i> Executar Todos os Testes
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="actions-card">
+        <div class="card-header">
+            <h5 class="card-title">Parâmetros do Teste</h5>
+        </div>
+        <div class="card-body">
+            <div id="stress-params" class="test-params">
+                <div class="form-group">
+                    <label class="form-label">Número de consultas:</label>
+                    <input type="number" id="num-queries" class="form-input" value="1000" min="100" max="10000">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Consultas simultâneas:</label>
+                    <input type="number" id="num-parallel" class="form-input" value="10" min="1" max="50">
+                </div>
+            </div>
+            
+            <div id="leak-params" class="test-params" style="display: none;">
+                <div class="form-group">
+                    <label class="form-label">Interface de rede:</label>
+                    <select id="network-interface" class="form-input">
+                        <option value="auto">Detectar automaticamente</option>
+                        <option value="eth0">eth0</option>
+                        <option value="wlan0">wlan0</option>
+                        <option value="enp0s3">enp0s3</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Tempo de captura (segundos):</label>
+                    <input type="number" id="capture-time" class="form-input" value="10" min="5" max="30">
+                </div>
+            </div>
+            
+            <div id="comparative-params" class="test-params" style="display: none;">
+                <div class="form-group">
+                    <label class="form-label">Servidores DNS para comparação:</label>
+                    <div class="checkbox-group">
+                        <div><input type="checkbox" id="dns-google" checked> <label for="dns-google">Google DNS (8.8.8.8)</label></div>
+                        <div><input type="checkbox" id="dns-cloudflare" checked> <label for="dns-cloudflare">Cloudflare (1.1.1.1)</label></div>
+                        <div><input type="checkbox" id="dns-quad9" checked> <label for="dns-quad9">Quad9 (9.9.9.9)</label></div>
+                        <div><input type="checkbox" id="dns-opendns" checked> <label for="dns-opendns">OpenDNS (208.67.222.222)</label></div>
+                    </div>
+                </div>
+            </div>
+            
+            <button id="btn-start-test" class="action-button" style="background-color: var(--accent-green); margin-top: 15px;">
+                <i class="fas fa-play"></i> Iniciar Teste
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="details-card" id="test-progress-card" style="display: none;">
+    <div class="card-header">
+        <h5 class="card-title">Progresso do Teste</h5>
+    </div>
+    <div class="card-body">
+        <div class="progress-container">
+            <div class="progress-bar-container">
+                <div id="progress-bar" class="progress-bar"></div>
+            </div>
+            <div id="progress-text">Iniciando teste...</div>
+        </div>
+        <div id="log-container" class="log-container">
+            <pre id="test-log"></pre>
+        </div>
+    </div>
+</div>
+
+<div class="clients-card" id="test-results-card" style="display: none;">
+    <div class="card-header">
+        <h5 class="card-title">Resultados do Teste</h5>
+    </div>
+    <div class="card-body">
+        <div id="results-summary" class="results-summary"></div>
+        
+        <div id="chart-container" class="chart-container" style="display: none;">
+            <canvas id="results-chart"></canvas>
+        </div>
+        
+        <div id="table-container" class="table-container" style="display: none;">
+            <table id="results-table" class="data-table">
+                <thead id="results-table-head">
+                </thead>
+                <tbody id="results-table-body">
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="actions-container" style="margin-top: 20px;">
+            <button id="btn-generate-report" class="action-button" style="background-color: var(--accent-blue);">
+                <i class="fas fa-file-alt"></i> Gerar Relatório
+            </button>
+            <button id="btn-download-report" class="action-button" style="background-color: var(--accent-green); display: none;">
+                <i class="fas fa-download"></i> Baixar Relatório
+            </button>
+            <button id="btn-new-test" class="action-button" style="background-color: var(--accent-orange);">
+                <i class="fas fa-redo"></i> Novo Teste
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .test-params {
+        margin-bottom: 15px;
+    }
+    
+    .checkbox-group {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-gap: 10px;
+    }
+    
+    .progress-container {
+        margin-bottom: 20px;
+    }
+    
+    .progress-bar-container {
+        width: 100%;
+        height: 20px;
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 10px;
+    }
+    
+    .progress-bar {
+        height: 100%;
+        width: 0%;
+        background-color: var(--accent-green);
+        transition: width 0.3s ease;
+    }
+    
+    .log-container {
+        background-color: rgba(0, 0, 0, 0.2);
+        border-radius: 5px;
+        padding: 15px;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    
+    .log-container pre {
+        margin: 0;
+        font-family: 'Courier New', monospace;
+        color: #ddd;
+        white-space: pre-wrap;
+    }
+    
+    .results-summary {
+        margin-bottom: 20px;
+        padding: 15px;
+        background-color: rgba(0, 0, 0, 0.2);
+        border-radius: 5px;
+    }
+    
+    .result-success {
+        color: var(--accent-green);
+    }
+    
+    .result-warning {
+        color: var(--accent-orange);
+    }
+    
+    .result-danger {
+        color: var(--accent-red);
+    }
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+$(document).ready(function() {
+    let currentTest = 'stress';
+    let testRunning = false;
+    let testResults = {};
+    let reportUrl = null;
+    
+    // Botões de seleção de teste
+    $('#btn-stress-test').click(function() {
+        selectTest('stress');
+    });
+    
+    $('#btn-leak-test').click(function() {
+        selectTest('leak');
+    });
+    
+    $('#btn-comparative-test').click(function() {
+        selectTest('comparative');
+    });
+    
+    $('#btn-all-tests').click(function() {
+        selectTest('all');
+    });
+    
+    // Botão iniciar teste
+    $('#btn-start-test').click(function() {
+        startTest();
+    });
+    
+    // Botão gerar relatório
+    $('#btn-generate-report').click(function() {
+        generateReport();
+    });
+    
+    // Botão download relatório
+    $('#btn-download-report').click(function() {
+        downloadReport();
+    });
+    
+    // Botão novo teste
+    $('#btn-new-test').click(function() {
+        resetUI();
+    });
+    
+    // Função para selecionar o teste
+    function selectTest(testType) {
+        if (testRunning) return;
+        
+        currentTest = testType;
+        
+        // Alterar estilo dos botões
+        $('.action-button').removeClass('active-test');
+        
+        switch (testType) {
+            case 'stress':
+                $('#btn-stress-test').addClass('active-test');
+                $('#stress-params').show();
+                $('#leak-params, #comparative-params').hide();
+                break;
+            case 'leak':
+                $('#btn-leak-test').addClass('active-test');
+                $('#leak-params').show();
+                $('#stress-params, #comparative-params').hide();
+                break;
+            case 'comparative':
+                $('#btn-comparative-test').addClass('active-test');
+                $('#comparative-params').show();
+                $('#stress-params, #leak-params').hide();
+                break;
+            case 'all':
+                $('#btn-all-tests').addClass('active-test');
+                $('#stress-params').show();
+                $('#leak-params, #comparative-params').hide();
+                break;
+        }
+    }
+    
+    // Função para iniciar o teste
+    function startTest() {
+        if (testRunning) return;
+        
+        testRunning = true;
+        resetTestResults();
+        
+        // Mostrar card de progresso
+        $('#test-progress-card').show();
+        $('#test-results-card').hide();
+        
+        // Resetar log e progresso
+        $('#test-log').html('');
+        $('#progress-bar').css('width', '0%');
+        $('#progress-text').text('Iniciando teste...');
+        
+        // Preparar parâmetros do teste
+        let params = {};
+        
+        if (currentTest === 'stress' || currentTest === 'all') {
+            params.numQueries = $('#num-queries').val();
+            params.numParallel = $('#num-parallel').val();
+        }
+        
+        if (currentTest === 'leak' || currentTest === 'all') {
+            params.interface = $('#network-interface').val();
+            params.captureTime = $('#capture-time').val();
+        }
+        
+        if (currentTest === 'comparative' || currentTest === 'all') {
+            params.dnsServers = [];
+            if ($('#dns-google').is(':checked')) params.dnsServers.push('8.8.8.8');
+            if ($('#dns-cloudflare').is(':checked')) params.dnsServers.push('1.1.1.1');
+            if ($('#dns-quad9').is(':checked')) params.dnsServers.push('9.9.9.9');
+            if ($('#dns-opendns').is(':checked')) params.dnsServers.push('208.67.222.222');
+        }
+        
+        // Iniciar o teste via API
+        $.ajax({
+            url: '/api/teste_avancado/start',
+            method: 'POST',
+            data: JSON.stringify({
+                test_type: currentTest,
+                params: params
+            }),
+            contentType: 'application/json',
+            headers: {
+                'X-CSRFToken': "{{ csrf_token() }}"  // Adicione esta linha
+            },
+            success: function(data) {
+                if (data.error) {
+                   addLog('ERRO: ' + data.error, 'error');
+                   testRunning = false;
+                   return;
+                }
+                
+                // Iniciar polling para obter atualizações
+                const testId = data.test_id;
+                addLog('Teste iniciado com ID: ' + testId);
+                pollTestStatus(testId);
+            },
+            error: function(xhr, status, error) {
+                addLog('ERRO ao iniciar teste: ' + error, 'error');
+                testRunning = false;
+            }
+        });
+    }
+    
+    // Função para verificar status do teste
+    function pollTestStatus(testId) {
+        const pollInterval = setInterval(function() {
+            $.ajax({
+                url: '/api/teste_avancado/status/' + testId,
+                method: 'GET',
+                success: function(data) {
+                    // Atualizar progresso
+                    $('#progress-bar').css('width', data.progress + '%');
+                    $('#progress-text').text(data.status);
+                    
+                    // Adicionar novas linhas de log
+                    if (data.log_updates && data.log_updates.length > 0) {
+                        data.log_updates.forEach(log => {
+                            addLog(log.message, log.type);
+                        });
+                    }
+                    
+                    // Verificar se o teste foi concluído
+                    if (data.completed) {
+                        clearInterval(pollInterval);
+                        testRunning = false;
+                        
+                        // Salvar resultados e mostrar
+                        testResults = data.results;
+                        showTestResults();
+                    }
+                },
+                error: function(xhr, status, error) {
+                    addLog('ERRO ao verificar status: ' + error, 'error');
+                    clearInterval(pollInterval);
+                    testRunning = false;
+                }
+            });
+        }, 1000);
+    }
+    
+    // Função para adicionar log
+    function addLog(message, type = 'info') {
+        const timestamp = new Date().toTimeString().split(' ')[0];
+        let logClass = '';
+        
+        switch (type) {
+            case 'error':
+                logClass = 'style="color: var(--accent-red);"';
+                break;
+            case 'success':
+                logClass = 'style="color: var(--accent-green);"';
+                break;
+            case 'warning':
+                logClass = 'style="color: var(--accent-orange);"';
+                break;
+        }
+        
+        $('#test-log').append(`<div ${logClass}>[${timestamp}] ${message}</div>`);
+        
+        // Auto-scroll para o fim do log
+        const logContainer = document.getElementById('log-container');
+        logContainer.scrollTop = logContainer.scrollHeight;
+    }
+    
+    // Função para mostrar resultados do teste
+    function showTestResults() {
+        // Esconder card de progresso
+        $('#test-progress-card').hide();
+        
+        // Mostrar card de resultados
+        $('#test-results-card').show();
+        
+        // Preencher resumo baseado no tipo de teste
+        let summaryHtml = '';
+        
+        if (currentTest === 'stress' || testResults.stress) {
+            const stressData = testResults.stress || testResults;
+            summaryHtml += `<h3>Teste de Stress DNS</h3>
+                <p>Total de consultas: <strong>${stressData.total_queries}</strong></p>
+                <p>Consultas bem-sucedidas: <strong class="result-success">${stressData.successful_queries}</strong></p>
+                <p>Consultas falhas: <strong class="result-danger">${stressData.failed_queries}</strong></p>
+                <p>Tempo total: <strong>${stressData.total_time} segundos</strong></p>
+                <p>Taxa de consultas: <strong>${stressData.query_rate} consultas/segundo</strong></p>
+                <p>Taxa de sucesso: <strong>${stressData.success_rate}%</strong></p>`;
+                
+            // Mostrar gráfico para stress test
+            showStressChart(stressData);
+        }
+        
+        if (currentTest === 'leak' || testResults.leak) {
+            const leakData = testResults.leak || testResults;
+            summaryHtml += `<h3>Teste de Vazamento DNS</h3>
+                <p>Interface testada: <strong>${leakData.interface}</strong></p>
+                <p>Status: <strong class="${leakData.leaks_found ? 'result-danger' : 'result-success'}">${leakData.status}</strong></p>`;
+                
+            if (leakData.leaks_found) {
+                summaryHtml += `<p>Servidores detectados:</p><ul>`;
+                leakData.detected_servers.forEach(server => {
+                    summaryHtml += `<li>${server}</li>`;
+                });
+                summaryHtml += `</ul>`;
+            }
+        }
+        
+        if (currentTest === 'comparative' || testResults.comparative) {
+            const compData = testResults.comparative || testResults;
+            summaryHtml += `<h3>Teste Comparativo DNS</h3>
+                <p>Servidor mais rápido: <strong class="result-success">${compData.fastest_server}</strong></p>
+                <p>Servidor mais lento: <strong class="result-warning">${compData.slowest_server}</strong></p>`;
+                
+            // Mostrar tabela comparativa
+            showComparativeTable(compData);
+        }
+        
+        $('#results-summary').html(summaryHtml);
+    }
+    
+    // Função para mostrar gráfico de stress test
+    function showStressChart(data) {
+        $('#chart-container').show();
+        $('#table-container').hide();
+        
+        const ctx = document.getElementById('results-chart').getContext('2d');
+        
+        if (window.resultsChart) {
+            window.resultsChart.destroy();
+        }
+        
+        window.resultsChart = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: ['Sucesso', 'Falha'],
+                datasets: [{
+                    data: [data.successful_queries, data.failed_queries],
+                    backgroundColor: ['rgba(0, 242, 195, 0.7)', 'rgba(253, 93, 147, 0.7)'],
+                    borderColor: ['rgba(0, 242, 195, 1)', 'rgba(253, 93, 147, 1)'],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            color: '#ffffff'
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Resultados de Consultas DNS',
+                        color: '#ffffff'
+                    }
+                }
+            }
+        });
+    }
+    
+    // Função para mostrar tabela comparativa
+    function showComparativeTable(data) {
+        $('#chart-container').hide();
+        $('#table-container').show();
+        
+        // Limpar tabela
+        $('#results-table-head').empty();
+        $('#results-table-body').empty();
+        
+        // Cabeçalho
+        let headerRow = '<tr><th>Servidor DNS</th>';
+        data.domains.forEach(domain => {
+            headerRow += `<th>${domain}</th>`;
+        });
+        headerRow += '<th>Média</th></tr>';
+        
+        $('#results-table-head').html(headerRow);
+        
+        // Corpo da tabela
+        let tableBody = '';
+        data.servers.forEach(server => {
+            tableBody += `<tr><td>${server.name}</td>`;
+            
+            server.results.forEach(result => {
+                let cellClass = '';
+                if (result === 'Falha') {
+                    cellClass = 'class="result-danger"';
+                } else if (server.name === data.fastest_server) {
+                    cellClass = 'class="result-success"';
+                }
+                
+                tableBody += `<td ${cellClass}>${result}</td>`;
+            });
+            
+            // Média
+            let avgClass = '';
+            if (server.name === data.fastest_server) {
+                avgClass = 'class="result-success"';
+            } else if (server.name === data.slowest_server) {
+                avgClass = 'class="result-warning"';
+            }
+            
+            tableBody += `<td ${avgClass}><strong>${server.average}</strong></td></tr>`;
+        });
+        
+        $('#results-table-body').html(tableBody);
+    }
+    
+    // Função para gerar relatório
+    function generateReport() {
+        $('#btn-generate-report').prop('disabled', true);
+        $('#btn-generate-report').html('<i class="fas fa-spinner fa-spin"></i> Gerando...');
+        
+        $.ajax({
+            url: '/api/teste_avancado/report',
+            method: 'POST',
+            data: JSON.stringify({
+                results: testResults,
+                test_type: currentTest
+            }),
+            contentType: 'application/json',
+			headers: {
+                'X-CSRFToken': "{{ csrf_token() }}"
+            },
+            success: function(data) {
+                if (data.error) {
+                    alert('Erro ao gerar relatório: ' + data.error);
+                    $('#btn-generate-report').prop('disabled', false);
+                    $('#btn-generate-report').html('<i class="fas fa-file-alt"></i> Gerar Relatório');
+                    return;
+                }
+                
+                reportUrl = data.report_url;
+                $('#btn-download-report').show();
+                $('#btn-generate-report').html('<i class="fas fa-check"></i> Relatório Gerado');
+            },
+            error: function(xhr, status, error) {
+                alert('Erro ao gerar relatório: ' + error);
+                $('#btn-generate-report').prop('disabled', false);
+                $('#btn-generate-report').html('<i class="fas fa-file-alt"></i> Gerar Relatório');
+            }
+        });
+    }
+    
+    // Função para baixar relatório
+    function downloadReport() {
+        if (reportUrl) {
+            window.location.href = reportUrl;
+        }
+    }
+    
+    // Função para resetar UI
+    function resetUI() {
+        testRunning = false;
+        $('#test-progress-card').hide();
+        $('#test-results-card').hide();
+        $('#btn-generate-report').prop('disabled', false);
+        $('#btn-generate-report').html('<i class="fas fa-file-alt"></i> Gerar Relatório');
+        $('#btn-download-report').hide();
+        
+        if (window.resultsChart) {
+            window.resultsChart.destroy();
+        }
+    }
+    
+    // Função para resetar resultados
+    function resetTestResults() {
+        testResults = {};
+        reportUrl = null;
+    }
+    
+    // Detectar interfaces de rede disponíveis
+    $.ajax({
+        url: '/api/teste_avancado/interfaces',
+        method: 'GET',
+        success: function(data) {
+            if (data.interfaces && data.interfaces.length > 0) {
+                const select = $('#network-interface');
+                select.empty();
+                select.append('<option value="auto">Detectar automaticamente</option>');
+                
+                data.interfaces.forEach(iface => {
+                    select.append(`<option value="${iface}">${iface}</option>`);
+                });
+            }
+        }
+    });
+    
+    // Inicialmente, selecione o teste de stress
+    selectTest('stress');
+});
+</script>
+{% endblock %}

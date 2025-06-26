@@ -1,0 +1,160 @@
+<!-- templates/attempts.html -->
+{% extends "base.html" %}
+
+{% block title %}Tentativas de Acesso - BR10 DNS Blocklist{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1 class="dashboard-title">Tentativas de Acesso Bloqueadas</h1>
+</div>
+
+<div class="stats-card">
+    <div class="card-header">
+        <h5 class="card-title">Estatísticas</h5>
+    </div>
+    <div class="card-body">
+        <div class="stats-container">
+            <div class="stat-box">
+                <h2 id="total-attempts">-</h2>
+                <p>Total de Tentativas</p>
+            </div>
+            <div class="stat-box">
+                <h2 id="unique-domains">-</h2>
+                <p>Domínios Únicos</p>
+            </div>
+            <div class="stat-box">
+                <h2 id="unique-clients">-</h2>
+                <p>Clientes Únicos</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="actions-card">
+    <div class="card-header">
+        <h5 class="card-title">Ações</h5>
+    </div>
+    <div class="card-body">
+        <div class="actions-container">
+            <button id="btn-refresh" class="action-button refresh-button">
+                <i class="fas fa-sync-alt"></i> Atualizar Dados
+            </button>
+            <select id="limit-select" class="action-button">
+                <option value="50">Mostrar 50 tentativas</option>
+                <option value="100" selected>Mostrar 100 tentativas</option>
+                <option value="200">Mostrar 200 tentativas</option>
+                <option value="500">Mostrar 500 tentativas</option>
+            </select>
+        </div>
+        <div id="action-result" class="action-result"></div>
+    </div>
+</div>
+
+<div class="clients-card">
+    <div class="card-header">
+        <h5 class="card-title">Log de Tentativas</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table id="attempts-table" class="data-table">
+                <thead>
+                    <tr>
+                        <th>Horário</th>
+                        <th>Domínio</th>
+                        <th>IP do Cliente</th>
+                    </tr>
+                </thead>
+                <tbody id="attempts-body">
+                    <tr>
+                        <td colspan="3" class="loading-data">Carregando dados...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+$(document).ready(function() {
+    loadAttempts();
+    
+    // Atualização automática a cada 60 segundos
+    setInterval(loadAttempts, 60000);
+    
+    // Botão de atualizar
+    $('#btn-refresh').click(function() {
+        loadAttempts();
+    });
+    
+    // Alterar limite
+    $('#limit-select').change(function() {
+        loadAttempts();
+    });
+});
+
+// Carregar tentativas de acesso
+function loadAttempts() {
+    const limit = $('#limit-select').val();
+    
+    $.ajax({
+        url: `/api/attempts?limit=${limit}`,
+        method: 'GET',
+        success: function(data) {
+            if (data.error) {
+                showError(data.error);
+                return;
+            }
+            
+            // Atualizar estatísticas
+            $('#total-attempts').text(data.count.toLocaleString());
+            
+            // Calcular domínios e clientes únicos
+            const domains = new Set();
+            const clients = new Set();
+            
+            data.attempts.forEach(attempt => {
+                domains.add(attempt.domain);
+                clients.add(attempt.client_ip);
+            });
+            
+            $('#unique-domains').text(domains.size.toLocaleString());
+            $('#unique-clients').text(clients.size.toLocaleString());
+            
+            // Atualizar tabela
+            $('#attempts-body').empty();
+            
+            if (data.attempts.length === 0) {
+                $('#attempts-body').html('<tr><td colspan="3" class="loading-data">Nenhuma tentativa registrada</td></tr>');
+                return;
+            }
+            
+            $.each(data.attempts, function(index, attempt) {
+                let row = `
+                    <tr>
+                        <td>${attempt.time}</td>
+                        <td>${attempt.domain}</td>
+                        <td>${attempt.client_ip}</td>
+                    </tr>
+                `;
+                
+                $('#attempts-body').append(row);
+            });
+        },
+        error: function(xhr, status, error) {
+            showError('Erro ao carregar tentativas: ' + error);
+        }
+    });
+}
+
+// Mostrar erro
+function showError(message) {
+    $('#action-result').html(`
+        <div class="alert alert-danger">
+            <strong>Erro!</strong> ${message}
+        </div>
+    `);
+}
+</script>
+{% endblock %}

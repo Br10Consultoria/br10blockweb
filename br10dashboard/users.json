@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "username": "MiralvoJunior",
+      "password": "3adcd236dbfa26c1b52a4ff5977f1ad7ee91c3f2f2fa8e0b74a580c578399c1d",
+      "role": "admin"
+    },
+    {
+      "username": "suporte",
+      "password": "5a8f77dde70db87ed04a81ad6186b27d1b63897e503203c4e59cf53f95320950",
+      "role": "reader"
+    }
+  ]
+}

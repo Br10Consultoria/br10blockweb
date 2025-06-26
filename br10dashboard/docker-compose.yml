@@ -1,0 +1,129 @@
+version: '3.8'
+
+services:
+  # Dashboard Web (sem exposição direta da porta 8084)
+  br10-dashboard:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    image: br10/dashboard:latest
+    container_name: br10-dashboard
+    restart: unless-stopped
+    
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=America/Sao_Paulo
+      - REDIS_HOST=redis
+      - FLASK_HOST=0.0.0.0
+      - FLASK_PORT=8084
+    
+    volumes:
+      - ./config:/opt/br10dashboard/config
+      - ./logs:/opt/br10dashboard/logs
+      - ./data:/opt/br10dashboard/data
+      - ./shared-data:/var/lib/br10api
+    
+    # SEM PORTS (Nginx fará proxy)
+    expose:
+      - "8084"  # Apenas para rede interna
+    
+    networks:
+      - br10-network
+    
+    depends_on:
+      - redis
+      - unbound
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/api/stats"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # API Client (referencia o br10config)
+  br10-api-client:
+    build:
+      context: ../br10config  # Aponta para o diretório vizinho
+      dockerfile: Dockerfile
+    image: br10/api-client:latest
+    container_name: br10-api-client
+    restart: unless-stopped
+    
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=America/Sao_Paulo
+    
+    volumes:
+      - ../br10config/config:/opt/br10api/config:ro
+      - ../br10config/logs:/opt/br10api/logs
+      - ./shared-data:/var/lib/br10api
+      - unbound-data:/var/lib/unbound
+    
+    ports:
+      - "51320:51320"
+    
+    networks:
+      - br10-network
+    
+    depends_on:
+      - redis
+      - unbound
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: br10-redis
+    restart: unless-stopped
+    
+    volumes:
+      - redis-data:/data
+    
+    expose:
+      - "6379"  # Apenas rede interna
+    
+    networks:
+      - br10-network
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Unbound DNS Server
+  unbound:
+    image: mvance/unbound:latest
+    container_name: br10-unbound
+    restart: unless-stopped
+    
+    volumes:
+      - unbound-data:/opt/unbound/etc/unbound
+      - ./shared-data:/var/lib/br10api:ro
+    
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "8953:8953"
+    
+    networks:
+      - br10-network
+    
+    healthcheck:
+      test: ["CMD", "dig", "@127.0.0.1", "google.com"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis-data:
+    driver: local
+  unbound-data:
+    driver: local
+
+networks:
+  br10-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

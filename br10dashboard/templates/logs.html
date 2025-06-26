@@ -1,0 +1,224 @@
+<!-- templates/logs.html -->
+{% extends "base.html" %} {% block title %}Logs do Sistema - BR10 DNS Blocklist{% endblock %} {% block content %}
+<div class="header">
+    <h1 class="dashboard-title">Logs do Sistema</h1>
+</div>
+
+<div class="actions-card">
+    <div class="card-header">
+        <h5 class="card-title">Filtros e Acoes</h5>
+    </div>
+    <div class="card-body">
+        <div class="actions-container">
+            <select id="log-type" class="action-button refresh-button">
+                <option value="all">Todos os Logs</option>
+                <option value="dashboard">Logs do Dashboard</option>
+                <option value="unbound">Logs do Unbound</option>
+                <option value="system">Logs do Sistema</option>
+            </select>
+            <select id="log-level" class="action-button refresh-button">
+                <option value="all">Todos os Niveis</option>
+                <option value="error">Erros</option>
+                <option value="warning">Avisos</option>
+                <option value="info">Informacoes</option>
+                <option value="debug">Debug</option>
+            </select>
+            <input type="text" id="search-input" class="action-button refresh-button" placeholder="Filtrar por texto..." style="width: 200px; text-align: left;">
+            <button id="btn-refresh" class="action-button refresh-button">
+                <i class="fas fa-sync-alt"></i> Atualizar
+            </button>
+            <button id="btn-clear" class="action-button" style="background-color: var(--accent-red);">
+                <i class="fas fa-trash-alt"></i> Limpar Filtros
+            </button>
+        </div>
+        <div id="log-result" class="action-result"></div>
+    </div>
+</div>
+
+<div class="clients-card">
+    <div class="card-header">
+        <h5 class="card-title">Entradas de Log</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-container">
+            <table id="logs-table" class="data-table">
+                <thead>
+                    <tr>
+                        <th width="15%">Data/Hora</th>
+                        <th width="10%">Tipo</th>
+                        <th width="10%">Nivel</th>
+                        <th width="65%">Mensagem</th>
+                    </tr>
+                </thead>
+                <tbody id="logs-body">
+                    <tr>
+                        <td colspan="4" class="loading-data">Carregando logs...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="pagination" id="pagination">
+            <!-- Paginacao sera inserida via JavaScript -->
+        </div>
+    </div>
+</div>
+{% endblock %} {% block extra_scripts %}
+<script>
+    let currentPage = 1;
+    let totalPages = 1;
+    
+    $(document).ready(function() {
+        // Carregar logs inicialmente
+        loadLogs();
+        
+        // Eventos dos filtros
+        $('#log-type, #log-level').change(function() {
+            loadLogs(1);
+        });
+        
+        // Busca
+        $('#search-input').keyup(function(e) {
+            if (e.which === 13) {
+                loadLogs(1);
+            }
+        });
+        
+        // Botao de atualizar
+        $('#btn-refresh').click(function() {
+            loadLogs(currentPage);
+        });
+        
+        // Botao de limpar filtros
+        $('#btn-clear').click(function() {
+            $('#log-type').val('all');
+            $('#log-level').val('all');
+            $('#search-input').val('');
+            loadLogs(1);
+        });
+        
+        // Atualizacao automatica a cada 30 segundos
+        setInterval(function() {
+            loadLogs(currentPage);
+        }, 30000);
+    });
+    
+    // Carregar logs
+    function loadLogs(page = 1) {
+        currentPage = page;
+        
+        const type = $('#log-type').val();
+        const level = $('#log-level').val();
+        const search = $('#search-input').val().trim();
+        
+        // Construir URL com parâmetros
+        let url = `/api/logs?page=${page}`;
+        if (type !== 'all') url += `&type=${type}`;
+        if (level !== 'all') url += `&level=${level}`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        
+        $.ajax({
+            url: url,
+            method: 'GET',
+            success: function(data) {
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+                
+                // Atualizar tabela
+                updateTable(data.logs);
+                
+                // Atualizar paginacao
+                totalPages = data.total_pages;
+                updatePagination(page, totalPages);
+            },
+            error: function(xhr, status, error) {
+                showError('Erro ao carregar logs: ' + error);
+            }
+        });
+    }
+    
+    // Atualizar tabela
+    function updateTable(logs) {
+        $('#logs-body').empty();
+        
+        if (!logs || logs.length === 0) {
+            $('#logs-body').html('<tr><td colspan="4" class="loading-data">Nenhum log encontrado com os filtros atuais</td></tr>');
+            return;
+        }
+        
+        $.each(logs, function(index, log) {
+            // Definir classe de cor com base no nivel
+            let rowClass = '';
+            if (log.level === 'ERROR') rowClass = 'style="color: var(--accent-red);"';
+            else if (log.level === 'WARNING') rowClass = 'style="color: var(--accent-orange);"';
+            
+            const row = `
+                <tr ${rowClass}>
+                    <td>${log.timestamp}</td>
+                    <td>${log.type}</td>
+                    <td>${log.level}</td>
+                    <td>${log.message}</td>
+                </tr>
+            `;
+            
+            $('#logs-body').append(row);
+        });
+    }
+    
+    // Atualizar paginacao
+    function updatePagination(currentPage, totalPages) {
+        const pagination = $('#pagination');
+        pagination.empty();
+        
+        if (totalPages <= 1) {
+            return;
+        }
+        
+        // Adicionar link para primeira pagina
+        pagination.append(`<span class="pagination-item" data-page="1"><i class="fas fa-angle-double-left"></i></span>`);
+        
+        // Adicionar link para pagina anterior
+        if (currentPage > 1) {
+            pagination.append(`<span class="pagination-item" data-page="${currentPage - 1}"><i class="fas fa-angle-left"></i></span>`);
+        }
+        
+        // Determinar quais paginas mostrar
+        let startPage = Math.max(1, currentPage - 2);
+        let endPage = Math.min(totalPages, startPage + 4);
+        
+        if (endPage - startPage < 4 && startPage > 1) {
+            startPage = Math.max(1, endPage - 4);
+        }
+        
+        // Adicionar links para paginas
+        for (let i = startPage; i <= endPage; i++) {
+            const activeClass = i === currentPage ? 'active' : '';
+            pagination.append(`<span class="pagination-item ${activeClass}" data-page="${i}">${i}</span>`);
+        }
+        
+        // Adicionar link para proxima pagina
+        if (currentPage < totalPages) {
+            pagination.append(`<span class="pagination-item" data-page="${currentPage + 1}"><i class="fas fa-angle-right"></i></span>`);
+        }
+        
+        // Adicionar link para última pagina
+        pagination.append(`<span class="pagination-item" data-page="${totalPages}"><i class="fas fa-angle-double-right"></i></span>`);
+        
+        // Adicionar eventos de clique
+        $('.pagination-item').click(function() {
+            const page = $(this).data('page');
+            loadLogs(page);
+        });
+    }
+    
+    // Mostrar erro
+    function showError(message) {
+        $('#log-result').html(`
+            <div class="alert alert-danger">
+                <strong>Erro!</strong> ${message}
+            </div>
+        `);
+    }
+</script>
+{% endblock %}

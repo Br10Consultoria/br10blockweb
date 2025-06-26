@@ -1,0 +1,1022 @@
+{% extends "base.html" %} {% block title %}Monitoramento de Recursos - BR10 DNS{% endblock %} {% block extra_styles %}
+<style>
+    /* Estilos especificos para graficos de recursos */
+    .chart-container {
+        height: 250px;
+        margin-bottom: 20px;
+    }
+    
+    .resource-card {
+        margin-bottom: 20px;
+        background-color: var(--card-bg);
+        border-radius: 15px;
+        box-shadow: 0 4px 20px 0px rgba(0, 0, 0, 0.14), 0 7px 10px -5px rgba(0, 0, 0, 0.4);
+        overflow: hidden;
+    }
+    
+    .resource-card .card-header {
+        padding: 15px;
+        font-weight: bold;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .resource-card .card-body {
+        padding: 20px;
+    }
+    
+    .cpu-header {
+        background-color: var(--accent-blue);
+    }
+    
+    .memory-header {
+        background-color: var(--accent-green);
+    }
+    
+    .disk-header {
+        background-color: var(--accent-orange);
+    }
+    
+    .process-header {
+        background-color: var(--accent-purple);
+    }
+    
+    .htop-header {
+        background-color: var(--accent-red);
+    }
+    
+    .term-container {
+        background-color: rgba(0, 0, 0, 0.8);
+        color: #f0f0f0;
+        font-family: 'Courier New', monospace;
+        padding: 15px;
+        border-radius: 10px;
+        max-height: 500px;
+        overflow-y: auto;
+        white-space: pre;
+        font-size: 0.8rem;
+    }
+    
+    .resource-indicator {
+        display: flex;
+        flex-direction: column;
+        text-align: center;
+        margin-bottom: 15px;
+    }
+    
+    .resource-value {
+        font-size: 2rem;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    
+    .resource-label {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+    }
+    
+    .resource-row {
+        display: flex;
+        justify-content: space-around;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+    }
+    
+    .resource-cell {
+        flex: 1;
+        min-width: 150px;
+        text-align: center;
+        padding: 10px;
+    }
+    
+    .update-time {
+        font-size: 0.8rem;
+        opacity: 0.7;
+        margin-left: 15px;
+    }
+    
+    .controls {
+        margin-bottom: 20px;
+    }
+    
+    /* Progressbar */
+    .progress-bar-container {
+        width: 100%;
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        height: 6px;
+        margin-top: 5px;
+    }
+    
+    .progress-bar {
+        height: 6px;
+        border-radius: 10px;
+    }
+    
+    .progress-bar-cpu {
+        background-color: var(--accent-blue);
+    }
+    
+    .progress-bar-memory {
+        background-color: var(--accent-green);
+    }
+    
+    .progress-bar-disk {
+        background-color: var(--accent-orange);
+    }
+    
+    /* Tabela de processos */
+    .process-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    
+    .process-table th {
+        background-color: rgba(255, 255, 255, 0.1);
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+    
+    .process-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border-color);
+    }
+    
+    .process-table tr:hover {
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+    
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 100;
+        border-radius: 15px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s;
+    }
+    
+    .loading-overlay.active {
+        opacity: 1;
+        pointer-events: all;
+    }
+    
+    .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 5px solid var(--accent-blue);
+        border-radius: 50%;
+        border-top-color: transparent;
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    .tabs {
+        display: flex;
+        background-color: var(--card-bg);
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 20px;
+    }
+    
+    .tab {
+        flex: 1;
+        padding: 10px 20px;
+        text-align: center;
+        cursor: pointer;
+        background-color: var(--card-bg);
+        border-bottom: 2px solid transparent;
+        transition: all 0.3s;
+    }
+    
+    .tab:hover {
+        background-color: rgba(255, 255, 255, 0.05);
+    }
+    
+    .tab.active {
+        border-bottom: 2px solid var(--accent-blue);
+        font-weight: bold;
+    }
+    
+    .tab-content {
+        display: none;
+    }
+    
+    .tab-content.active {
+        display: block;
+    }
+</style>
+{% endblock %} {% block content %}
+<div class="dashboard-container">
+    <div class="header">
+        <h1 class="dashboard-title">Monitoramento de Recursos do Sistema</h1>
+        <p class="dashboard-subtitle">Visualize o desempenho da CPU, memoria, disco e processos em tempo real</p>
+    </div>
+
+    <div class="controls">
+        <button id="btn-start-monitor" class="action-button refresh-button">
+            <i class="fas fa-play"></i> Iniciar Monitoramento
+        </button>
+        <button id="btn-stop-monitor" class="action-button" style="background-color: var(--accent-red); display: none;">
+            <i class="fas fa-stop"></i> Parar Monitoramento
+        </button>
+        <button id="btn-refresh" class="action-button sync-button">
+            <i class="fas fa-sync-alt"></i> Atualizar Agora
+        </button>
+        <span id="update-status" class="update-time">ultima atualizacão: Nunca</span>
+    </div>
+
+    <div class="tabs">
+        <div class="tab active" data-tab="dashboard">Dashboard</div>
+        <div class="tab" data-tab="processes">Processos</div>
+        <div class="tab" data-tab="io">I/O</div>
+        <div class="tab" data-tab="console">Console</div>
+    </div>
+
+    <!-- Tab Conteudo: Dashboard -->
+    <div class="tab-content active" id="tab-dashboard">
+        <!-- CPU Card -->
+        <div class="resource-card">
+            <div class="loading-overlay">
+                <div class="loading-spinner"></div>
+            </div>
+            <div class="card-header cpu-header">
+                <h5 class="card-title">CPU</h5>
+                <div>
+                    <i class="fas fa-microchip"></i>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="resource-row">
+                    <div class="resource-cell">
+                        <div class="resource-indicator">
+                            <div class="resource-value" id="cpu-user">0%</div>
+                            <div class="resource-label">Usuario</div>
+                        </div>
+                    </div>
+                    <div class="resource-cell">
+                        <div class="resource-indicator">
+                            <div class="resource-value" id="cpu-system">0%</div>
+                            <div class="resource-label">Sistema</div>
+                        </div>
+                    </div>
+                    <div class="resource-cell">
+                        <div class="resource-indicator">
+                            <div class="resource-value" id="cpu-idle">100%</div>
+                            <div class="resource-label">Idle</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <canvas id="cpu-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Memory Card -->
+        <div class="resource-card">
+            <div class="loading-overlay">
+                <div class="loading-spinner"></div>
+            </div>
+            <div class="card-header memory-header">
+                <h5 class="card-title">Memoria</h5>
+                <div>
+                    <i class="fas fa-memory"></i>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="resource-row">
+                    <div class="resource-cell">
+                        <div class="resource-indicator">
+                            <div class="resource-value" id="mem-total">0 MB</div>
+                            <div class="resource-label">Total</div>
+                        </div>
+                    </div>
+                    <div class="resource-cell">
+                        <div class="resource-indicator">
+                            <div class="resource-value" id="mem-used">0 MB</div>
+                            <div class="resource-label">Usada</div>
+                        </div>
+                    </div>
+                    <div class="resource-cell">
+                        <div class="resource-indicator">
+                            <div class="resource-value" id="mem-free">0 MB</div>
+                            <div class="resource-label">Livre</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <canvas id="memory-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Disk I/O Card -->
+        <div class="resource-card">
+            <div class="loading-overlay">
+                <div class="loading-spinner"></div>
+            </div>
+            <div class="card-header disk-header">
+                <h5 class="card-title">Disco I/O</h5>
+                <div>
+                    <i class="fas fa-hdd"></i>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="disk-metrics">
+                    <div class="table-container">
+                        <table class="process-table" id="disk-table">
+                            <thead>
+                                <tr>
+                                    <th>Dispositivo</th>
+                                    <th>Leitura</th>
+                                    <th>Escrita</th>
+                                    <th>Utilizacão</th>
+                                </tr>
+                            </thead>
+                            <tbody id="disk-body">
+                                <tr>
+                                    <td colspan="4" class="loading-data">Carregando dados...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab Conteudo: Processos -->
+    <div class="tab-content" id="tab-processes">
+        <div class="resource-card">
+            <div class="loading-overlay">
+                <div class="loading-spinner"></div>
+            </div>
+            <div class="card-header process-header">
+                <h5 class="card-title">Processos</h5>
+                <div>
+                    <i class="fas fa-tasks"></i>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-container">
+                    <table class="process-table" id="process-table">
+                        <thead>
+                            <tr>
+                                <th>PID</th>
+                                <th>Usuario</th>
+                                <th>CPU%</th>
+                                <th>MEM%</th>
+                                <th>VSZ</th>
+                                <th>RSS</th>
+                                <th>Inicio</th>
+                                <th>Comando</th>
+                            </tr>
+                        </thead>
+                        <tbody id="process-body">
+                            <tr>
+                                <td colspan="8" class="loading-data">Carregando dados...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab Conteudo: I/O -->
+    <div class="tab-content" id="tab-io">
+        <div class="resource-card">
+            <div class="loading-overlay">
+                <div class="loading-spinner"></div>
+            </div>
+            <div class="card-header disk-header">
+                <h5 class="card-title">Processos I/O</h5>
+                <div>
+                    <i class="fas fa-exchange-alt"></i>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="resource-row" id="io-summary">
+                    <div class="resource-cell">
+                        <div class="resource-indicator">
+                            <div class="resource-value" id="total-read">0 B/s</div>
+                            <div class="resource-label">Leitura Total</div>
+                        </div>
+                    </div>
+                    <div class="resource-cell">
+                        <div class="resource-indicator">
+                            <div class="resource-value" id="total-write">0 B/s</div>
+                            <div class="resource-label">Escrita Total</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="process-table" id="io-process-table">
+                        <thead>
+                            <tr>
+                                <th>PID</th>
+                                <th>Usuario</th>
+                                <th>Prioridade</th>
+                                <th>Leitura</th>
+                                <th>Escrita</th>
+                                <th>Comando</th>
+                            </tr>
+                        </thead>
+                        <tbody id="io-process-body">
+                            <tr>
+                                <td colspan="6" class="loading-data">Carregando dados...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab Conteudo: Console -->
+    <div class="tab-content" id="tab-console">
+        <div class="resource-card">
+            <div class="card-header htop-header">
+                <h5 class="card-title">htop</h5>
+                <div>
+                    <button id="btn-refresh-htop" class="action-button refresh-button" style="padding: 5px 10px; font-size: 0.8em;">
+                        <i class="fas fa-sync-alt"></i> Atualizar
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="term-container" id="htop-output">Carregando htop...</div>
+            </div>
+        </div>
+
+        <div class="resource-card">
+            <div class="card-header disk-header">
+                <h5 class="card-title">iotop</h5>
+                <div>
+                    <button id="btn-refresh-iotop" class="action-button refresh-button" style="padding: 5px 10px; font-size: 0.8em;">
+                        <i class="fas fa-sync-alt"></i> Atualizar
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="term-container" id="iotop-output">Carregando iotop...</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} {% block extra_scripts %}
+<script>
+    $(document).ready(function() {
+    // Obter token CSRF da página
+    let csrf_token = '';
+try {
+  const metaElement = document.querySelector('meta[name="csrf-token"]');
+  if (metaElement) {
+    csrf_token = metaElement.getAttribute('content');
+  } else {
+    csrf_token = '{{ csrf_token() }}';
+  }
+} catch (error) {
+  console.log('Erro ao obter token CSRF:', error);
+  csrf_token = '{{ csrf_token() }}';
+}
+    
+    // Configurar token CSRF para todas as requisições AJAX
+    $.ajaxSetup({
+        beforeSend: function(xhr, settings) {
+            if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                xhr.setRequestHeader("X-CSRFToken", csrf_token);
+            }
+        }
+    });
+    
+    // Variáveis de estado
+    let isMonitoring = false;
+    let updateInterval = null;
+    const REFRESH_INTERVAL = 60000; // 60 segundos
+	
+        
+        // Referencias aos elementos
+        const cpuChart = document.getElementById('cpu-chart').getContext('2d');
+        const memoryChart = document.getElementById('memory-chart').getContext('2d');
+        const updateStatus = document.getElementById('update-status');
+        
+        // Inicializar Charts
+        const cpuChartInstance = new Chart(cpuChart, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Usuario',
+                        data: [],
+                        borderColor: '#1d8cf8',
+                        backgroundColor: 'rgba(29, 140, 248, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Sistema',
+                        data: [],
+                        borderColor: '#00f2c3',
+                        backgroundColor: 'rgba(0, 242, 195, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Idle',
+                        data: [],
+                        borderColor: '#fd5d93',
+                        backgroundColor: 'rgba(253, 93, 147, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            color: 'white'
+                        }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
+                    }
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.7)'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        }
+                    },
+                    y: {
+                        display: true,
+                        min: 0,
+                        max: 100,
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.7)'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        }
+                    }
+                }
+            }
+        });
+        
+        const memoryChartInstance = new Chart(memoryChart, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Usada',
+                        data: [],
+                        borderColor: '#00f2c3',
+                        backgroundColor: 'rgba(0, 242, 195, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Cache',
+                        data: [],
+                        borderColor: '#ff8d72',
+                        backgroundColor: 'rgba(255, 141, 114, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Livre',
+                        data: [],
+                        borderColor: '#1d8cf8',
+                        backgroundColor: 'rgba(29, 140, 248, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            color: 'white'
+                        }
+                    },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                let value = context.parsed.y || 0;
+                                return `${label}: ${value.toFixed(1)} MB`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.7)'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        }
+                    },
+                    y: {
+                        display: true,
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                            callback: function(value) {
+                                return value + ' MB';
+                            }
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Funcão para formatar tamanhos de arquivo
+        function formatSize(size) {
+            if (typeof size === 'string') return size;
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let unitIndex = 0;
+            
+            while (size >= 1024 && unitIndex < units.length - 1) {
+                size /= 1024;
+                unitIndex++;
+            }
+            
+            return size.toFixed(1) + ' ' + units[unitIndex];
+        }
+        
+        // Funcão para atualizar os graficos
+        function updateCharts(data) {
+            // Atualizar grafico de CPU
+            if (data.history && data.history.cpu && data.history.cpu.length > 0) {
+                const cpuData = data.history.cpu;
+                
+                // Limitar a 30 pontos para manter o grafico legivel
+                const maxPoints = 30;
+                const cpuLabels = cpuData.slice(-maxPoints).map(point => point.timestamp);
+                const userData = cpuData.slice(-maxPoints).map(point => point.user);
+                const systemData = cpuData.slice(-maxPoints).map(point => point.system);
+                const idleData = cpuData.slice(-maxPoints).map(point => point.idle);
+                
+                cpuChartInstance.data.labels = cpuLabels;
+                cpuChartInstance.data.datasets[0].data = userData;
+                cpuChartInstance.data.datasets[1].data = systemData;
+                cpuChartInstance.data.datasets[2].data = idleData;
+                cpuChartInstance.update();
+                
+                // Atualizar indicadores de CPU atual
+                if (cpuData.length > 0) {
+                    const currentCpu = cpuData[cpuData.length - 1];
+                    document.getElementById('cpu-user').textContent = currentCpu.user.toFixed(1) + '%';
+                    document.getElementById('cpu-system').textContent = currentCpu.system.toFixed(1) + '%';
+                    document.getElementById('cpu-idle').textContent = currentCpu.idle.toFixed(1) + '%';
+                }
+            }
+            
+            // Atualizar grafico de memoria
+            if (data.history && data.history.memory && data.history.memory.length > 0) {
+                const memoryData = data.history.memory;
+                
+                // Limitar a 30 pontos para manter o grafico legivel
+                const maxPoints = 30;
+                const memLabels = memoryData.slice(-maxPoints).map(point => point.timestamp);
+                const usedData = memoryData.slice(-maxPoints).map(point => point.used);
+                const cachedData = memoryData.slice(-maxPoints).map(point => point.cached);
+                const freeData = memoryData.slice(-maxPoints).map(point => point.free);
+                
+                memoryChartInstance.data.labels = memLabels;
+                memoryChartInstance.data.datasets[0].data = usedData;
+                memoryChartInstance.data.datasets[1].data = cachedData;
+                memoryChartInstance.data.datasets[2].data = freeData;
+                
+                // Ajustar escala Y para o total de memoria
+                if (memoryData.length > 0) {
+                    const total = memoryData[0].total;
+                    memoryChartInstance.options.scales.y.max = total;
+                }
+                
+                memoryChartInstance.update();
+                
+                // Atualizar indicadores de memoria atual
+                if (memoryData.length > 0) {
+                    const currentMem = memoryData[memoryData.length - 1];
+                    document.getElementById('mem-total').textContent = currentMem.total.toFixed(0) + ' MB';
+                    document.getElementById('mem-used').textContent = currentMem.used.toFixed(0) + ' MB';
+                    document.getElementById('mem-free').textContent = currentMem.free.toFixed(0) + ' MB';
+                }
+            }
+            
+            // Atualizar tabela de discos
+            if (data.io && data.io.disks) {
+                const diskBody = document.getElementById('disk-body');
+                let diskHtml = '';
+                
+                data.io.disks.forEach(disk => {
+                    diskHtml += `
+                        <tr>
+                            <td>${disk.device}</td>
+                            <td>${disk.read_per_sec} r/s</td>
+                            <td>${disk.write_per_sec} w/s</td>
+                            <td>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar progress-bar-disk" style="width: ${disk.utilization}%"></div>
+                                </div>
+                                ${disk.utilization.toFixed(1)}%
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                if (diskHtml === '') {
+                    diskHtml = '<tr><td colspan="4" class="loading-data">Nenhum dispositivo ativo</td></tr>';
+                }
+                
+                diskBody.innerHTML = diskHtml;
+            }
+            
+            // Atualizar tabela de processos
+            if (data.top_processes) {
+                const processBody = document.getElementById('process-body');
+                let processHtml = '';
+                
+                data.top_processes.forEach(process => {
+                    processHtml += `
+                        <tr>
+                            <td>${process.pid}</td>
+                            <td>${process.user}</td>
+                            <td>${process.cpu_percent.toFixed(1)}</td>
+                            <td>${process.mem_percent.toFixed(1)}</td>
+                            <td>${formatSize(process.vsz * 1024)}</td>
+                            <td>${formatSize(process.rss * 1024)}</td>
+                            <td>${process.start_time}</td>
+                            <td>${process.command}</td>
+                        </tr>
+                    `;
+                });
+                
+                if (processHtml === '') {
+                    processHtml = '<tr><td colspan="8" class="loading-data">Nenhum processo encontrado</td></tr>';
+                }
+                
+                processBody.innerHTML = processHtml;
+            }
+            
+            // Atualizar informacoes de I/O
+            if (data.io_processes && data.io_processes.length > 0) {
+                const ioProcess = data.io_processes[0];
+                
+                // Atualizar totais
+                document.getElementById('total-read').textContent = ioProcess.total_read || '0 B/s';
+                document.getElementById('total-write').textContent = ioProcess.total_write || '0 B/s';
+                
+                // Atualizar tabela de processos I/O
+                const ioProcessBody = document.getElementById('io-process-body');
+                let ioProcessHtml = '';
+                
+                if (ioProcess.processes && ioProcess.processes.length > 0) {
+                    ioProcess.processes.forEach(process => {
+                        ioProcessHtml += `
+                            <tr>
+                                <td>${process.pid}</td>
+                                <td>${process.user}</td>
+                                <td>${process.prio}</td>
+                                <td>${process.disk_read}</td>
+                                <td>${process.disk_write}</td>
+                                <td>${process.command}</td>
+                            </tr>
+                        `;
+                    });
+                } else {
+                    ioProcessHtml = '<tr><td colspan="6" class="loading-data">Nenhum processo I/O ativo</td></tr>';
+                }
+                
+                ioProcessBody.innerHTML = ioProcessHtml;
+            }
+            
+            // Atualizar status de ultima atualizacão
+            if (data.last_update) {
+                updateStatus.textContent = 'ultima atualizacão: ' + data.last_update;
+            }
+        }
+        
+        // Funcão para atualizar os dados
+        function updateData() {
+            // Mostrar overlay de carregamento
+            document.querySelectorAll('.loading-overlay').forEach(overlay => {
+                overlay.classList.add('active');
+            });
+            
+            // Fazer requisicão AJAX
+            $.ajax({
+                url: '/api/system/stats',
+                method: 'GET',
+                data: {
+                    update: 'true'
+                },
+                success: function(data) {
+                    // Esconder overlay de carregamento
+                    document.querySelectorAll('.loading-overlay').forEach(overlay => {
+                        overlay.classList.remove('active');
+                    });
+                    
+                    // Atualizar dados
+                    updateCharts(data);
+                },
+                error: function(error) {
+                    console.error('Erro ao atualizar dados:', error);
+                    // Esconder overlay de carregamento
+                    document.querySelectorAll('.loading-overlay').forEach(overlay => {
+                        overlay.classList.remove('active');
+                    });
+                    alert('Erro ao atualizar dados do sistema. Verifique o console para detalhes.');
+                }
+            });
+        }
+        
+        // Funcoes para iniciar/parar monitoramento
+        function startMonitoring() {
+            if (isMonitoring) return;
+            
+            $.ajax({
+                url: '/api/system/start_monitor',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    interval: 5
+                }),
+				headers: {
+                    'X-CSRFToken': csrf_token
+                },
+                success: function(response) {
+                    if (response.success) {
+                        isMonitoring = true;
+                        $('#btn-start-monitor').hide();
+                        $('#btn-stop-monitor').show();
+                        
+                        // Atualizar dados imediatamente
+                        updateData();
+                        
+                        // Configurar atualizacão periodica
+                        updateInterval = setInterval(updateData, REFRESH_INTERVAL);
+                    } else {
+                        alert('Erro ao iniciar monitoramento: ' + response.message);
+                    }
+                },
+                error: function(error) {
+                    console.error('Erro ao iniciar monitoramento:', error);
+                    alert('Erro ao iniciar monitoramento. Verifique o console para detalhes.');
+                }
+            });
+        }
+        
+        function stopMonitoring() {
+            if (!isMonitoring) return;
+            
+            $.ajax({
+                url: '/api/system/stop_monitor',
+                method: 'POST',
+				headers: {
+                    'X-CSRFToken': csrf_token
+                },
+                success: function(response) {
+                    if (response.success) {
+                        isMonitoring = false;
+                        $('#btn-start-monitor').show();
+                        $('#btn-stop-monitor').hide();
+                        
+                        // Parar atualizacoes periodicas
+                        if (updateInterval) {
+                            clearInterval(updateInterval);
+                            updateInterval = null;
+                        }
+                    } else {
+                        alert('Erro ao parar monitoramento: ' + response.message);
+                    }
+                },
+                error: function(error) {
+                    console.error('Erro ao parar monitoramento:', error);
+                    alert('Erro ao parar monitoramento. Verifique o console para detalhes.');
+                }
+            });
+        }
+        
+        // Funcão para carregar dados do htop
+        function loadHtop() {
+            $('#htop-output').text('Carregando htop...');
+            
+            $.ajax({
+                url: '/api/system/htop',
+                method: 'GET',
+                success: function(data) {
+                    if (data.output) {
+                        $('#htop-output').text(data.output);
+                    } else {
+                        $('#htop-output').text('Erro: ' + (data.error || 'Resposta vazia'));
+                    }
+                },
+                error: function(error) {
+                    console.error('Erro ao carregar htop:', error);
+                    $('#htop-output').text('Erro ao carregar htop. Verifique o console para detalhes.');
+                }
+            });
+        }
+        
+        // Funcão para carregar dados do iotop
+        function loadIotop() {
+            $('#iotop-output').text('Carregando iotop...');
+            
+            $.ajax({
+                url: '/api/system/iotop',
+                method: 'GET',
+                success: function(data) {
+                    if (data.output) {
+                        $('#iotop-output').text(data.output);
+                    } else {
+                        $('#iotop-output').text('Erro: ' + (data.error || 'Resposta vazia'));
+                    }
+                },
+                error: function(error) {
+                    console.error('Erro ao carregar iotop:', error);
+                    $('#iotop-output').text('Erro ao carregar iotop. Verifique o console para detalhes.');
+                }
+            });
+        }
+        
+        // Configurar manipuladores de eventos
+        $('#btn-start-monitor').click(startMonitoring);
+        $('#btn-stop-monitor').click(stopMonitoring);
+        $('#btn-refresh').click(updateData);
+        $('#btn-refresh-htop').click(loadHtop);
+        $('#btn-refresh-iotop').click(loadIotop);
+        
+        // Manipuladores de abas
+        $('.tab').click(function() {
+            const tabId = $(this).data('tab');
+            
+            // Ativar aba clicada, desativar as outras
+            $('.tab').removeClass('active');
+            $(this).addClass('active');
+            
+            // Mostrar conteudo correspondente
+            $('.tab-content').removeClass('active');
+            $(`#tab-${tabId}`).addClass('active');
+            
+            // Carregar dados especificos da aba se necessario
+            if (tabId === 'console') {
+                loadHtop();
+                loadIotop();
+            }
+        });
+        
+        // Iniciar com os dados carregados
+        updateData();
+        
+        // Comecar o monitoramento automaticamente
+        startMonitoring();
+    });
+</script>
+{% endblock %}
