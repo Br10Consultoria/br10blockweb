@@ -1,485 +1,173 @@
-# 🛡️ BR10 DNS Sistema de Bloqueio
+# BR10 Block Web - v3.0.0
 
-Sistema completo de bloqueio de domínios DNS com dashboard web e API client, totalmente dockerizado.
-
-## 📋 Índice
-
-- [Visão Geral](#visão-geral)
-- [Arquitetura](#arquitetura)
-- [Pré-requisitos](#pré-requisitos)
-- [Instalação](#instalação)
-- [Configuração](#configuração)
-- [Uso](#uso)
-- [Monitoramento](#monitoramento)
-- [Backup e Restauração](#backup-e-restauração)
-- [Desenvolvimento](#desenvolvimento)
-- [Troubleshooting](#troubleshooting)
-
-## 🎯 Visão Geral
-
-O BR10 é um sistema completo de bloqueio de domínios DNS que consiste em duas partes principais:
-
-1. **🌐 Dashboard Web** - Interface para visualização de estatísticas, testes DNS e monitoramento
-2. **🔌 API Client** - Cliente que se comunica com servidor central e gerencia domínios bloqueados
-
-### ✨ Funcionalidades
-
-- 📊 **Dashboard Web Interativo**
-  - Estatísticas em tempo real
-  - Monitoramento de clientes DNS
-  - Testes de performance e latência
-  - Visualização de domínios bloqueados
-  - Logs do sistema
-  - Gerenciamento de usuários
-
-- 🔄 **API Client Automatizado**
-  - Sincronização automática com servidor central
-  - Heartbeat periódico
-  - Aplicação de listas de bloqueio
-  - Atualização de zona DNS
-  - Servidor de atualizações push
-
-- 🚀 **Infraestrutura Dockerizada**
-  - Redis para cache
-  - Unbound DNS server
-  - Sistema de logs centralizado
-  - Healthchecks automáticos
-
-## 🏗️ Arquitetura
-
-## Adicionando Templates
-
-Para adicionar os templates HTML, coloque os arquivos .html na pasta `templates/`:
-
-1. `templates/base.html` - Template base que contem o layout principal
-2. `templates/login.html` - Pagina de login
-3. `templates/dashboard.html` - Dashboard principal
-4. `templates/domains.html` - Lista de dominios bloqueados
-5. `templates/attempts.html` - Tentativas de acesso bloqueadas
-6. `templates/history.html` - Historico de atualizacoes
-
-Os templates devem estar no formato correto para funcionarem com Flask.
-
-## Acessando o Dashboard
-
-O dashboard pode ser acessado em: http://200.71.84.62:8084
-
-Credenciais padrao:
-- Usuario: Miralvo
-- Senha: 88138508
-
-## 📋 Pré-requisitos
-
-- **Docker** >= 20.10
-- **Docker Compose** >= 2.0
-- **Portas disponíveis**: 53, 6379, 8084, 51320
-- **Memória RAM**: Mínimo 2GB
-- **Espaço em disco**: Mínimo 5GB
-
-## 🚀 Instalação
-
-### 1. Clonar e Preparar
-
-```bash
-git clone <repository>
-cd br10-dns-system
-
-# Criar estrutura de diretórios
-mkdir -p {dashboard/{config,logs,data},api-client/{config,logs},redis,unbound,shared-data}
-```
-
-### 2. Configurar Variáveis de Ambiente
-
-```bash
-# Copiar arquivos de exemplo
-cp .env.example .env
-cp dashboard/.env.example dashboard/.env
-cp api-client/.env.example api-client/.env
-cp api-client/client.conf.example api-client/config/client.conf
-
-# Editar configurações
-nano .env
-nano dashboard/.env
-nano api-client/.env
-nano api-client/config/client.conf
-```
-
-### 3. Configurar Redis
-
-```bash
-# Criar configuração do Redis
-cat > redis/redis.conf << 'EOF'
-# Redis Configuration for BR10
-bind 0.0.0.0
-port 6379
-timeout 300
-tcp-keepalive 300
-daemonize no
-pidfile /var/run/redis.pid
-loglevel notice
-logfile ""
-databases 16
-save 900 1
-save 300 10
-save 60 10000
-rdbcompression yes
-rdbchecksum yes
-dbfilename dump.rdb
-dir /data
-maxmemory 256mb
-maxmemory-policy allkeys-lru
-EOF
-```
-
-### 4. Configurar Unbound
-
-```bash
-# Criar configuração do Unbound
-cat > unbound/unbound.conf << 'EOF'
-server:
-    verbosity: 1
-    interface: 0.0.0.0
-    port: 53
-    do-ip4: yes
-    do-ip6: no
-    do-udp: yes
-    do-tcp: yes
-    access-control: 0.0.0.0/0 allow
-    root-hints: "/opt/unbound/etc/unbound/root.hints"
-    hide-identity: yes
-    hide-version: yes
-    harden-glue: yes
-    harden-dnssec-stripped: yes
-    use-caps-for-id: yes
-    cache-min-ttl: 3600
-    cache-max-ttl: 86400
-    prefetch: yes
-    num-threads: 2
-    msg-cache-slabs: 8
-    rrset-cache-slabs: 8
-    infra-cache-slabs: 8
-    key-cache-slabs: 8
-    rrset-cache-size: 256m
-    msg-cache-size: 128m
-    outgoing-range: 4096
-    num-queries-per-thread: 2048
-    so-rcvbuf: 1m
-    so-sndbuf: 1m
-
-remote-control:
-    control-enable: yes
-    control-interface: 0.0.0.0
-    control-port: 8953
-EOF
-```
-
-### 5. Construir e Executar
-
-```bash
-# Construir imagens
-make build
-
-# Iniciar sistema
-make run
-
-# Verificar status
-make status
-```
-
-## ⚙️ Configuração
-
-### Dashboard Web
-
-O dashboard estará disponível em: **http://localhost:8084**
-
-**Credenciais padrão:**
-- Usuário: `admin`
-- Senha: `admin123`
-
-### API Client
-
-Configure o arquivo `api-client/config/client.conf`:
-
-```ini
-API_SERVER=https://seu-servidor-api.com
-API_PASSWORD=sua_senha_segura
-ENCRYPTION_KEY=sua_chave_32_bytes_aqui
-SERVER_ID=identificador_do_servidor
-```
-
-### Redis
-
-Redis estará disponível em: **localhost:6379**
-
-### DNS Server
-
-O servidor DNS estará disponível em: **localhost:53**
-
-Para testar:
-```bash
-dig @localhost google.com
-nslookup google.com localhost
-```
-
-## 📊 Uso
-
-### Dashboard Web
-
-1. **Acesso**: http://localhost:8084
-2. **Login**: Use credenciais configuradas
-3. **Navegação**:
-   - 📈 **Dashboard**: Visão geral e estatísticas
-   - 🌐 **Domínios**: Lista de domínios bloqueados
-   - 👥 **Clientes**: Monitoramento de clientes DNS
-   - 📜 **Histórico**: Histórico de mudanças
-   - 📋 **Logs**: Logs do sistema
-   - 🧪 **Testes**: Testes DNS e performance
-   - 💻 **Recursos**: Monitoramento do sistema
-
-### Comandos Úteis
-
-```bash
-# Ver logs em tempo real
-make logs
-
-# Logs específicos
-make logs-dashboard
-make logs-api
-
-# Acesso shell
-make shell-dashboard
-make shell-api
-
-# Status dos serviços
-make status
-
-# Monitorar recursos
-make monitor
-
-# Parar sistema
-make stop
-
-# Limpar tudo
-make clean
-```
-
-## 📊 Monitoramento
-
-### Healthchecks
-
-Todos os serviços possuem healthchecks automáticos:
-
-```bash
-# Verificar saúde dos serviços
-docker-compose ps
-```
-
-### Logs
-
-```bash
-# Logs centralizados
-make logs
-
-# Logs por serviço
-docker-compose logs br10-dashboard
-docker-compose logs br10-api-client
-docker-compose logs redis
-docker-compose logs unbound
-```
-
-### Métricas
-
-- **Dashboard**: Métricas em tempo real na interface web
-- **Redis**: `redis-cli monitor`
-- **Unbound**: `unbound-control stats`
-
-## 💾 Backup e Restauração
-
-### Backup Automático
-
-```bash
-# Criar backup
-make backup
-```
-
-### Backup Manual
-
-```bash
-# Backup Redis
-docker run --rm -v br10-dns-system_redis-data:/data -v $(pwd)/backup:/backup alpine tar czf /backup/redis-backup.tar.gz -C /data .
-
-# Backup Unbound
-docker run --rm -v br10-dns-system_unbound-data:/data -v $(pwd)/backup:/backup alpine tar czf /backup/unbound-backup.tar.gz -C /data .
-
-# Backup configurações
-tar czf backup/config-backup.tar.gz dashboard/config/ api-client/config/
-```
-
-### Restauração
-
-```bash
-# Parar serviços
-make stop
-
-# Restaurar dados
-docker run --rm -v br10-dns-system_redis-data:/data -v $(pwd)/backup:/backup alpine tar xzf /backup/redis-backup.tar.gz -C /data
-docker run --rm -v br10-dns-system_unbound-data:/data -v $(pwd)/backup:/backup alpine tar xzf /backup/unbound-backup.tar.gz -C /data
-
-# Restaurar configurações
-tar xzf backup/config-backup.tar.gz
-
-# Reiniciar
-make run
-```
-
-## 🛠️ Desenvolvimento
-
-### Modo Desenvolvimento
-
-```bash
-# Ambiente de desenvolvimento
-make dev
-```
-
-### Estrutura do Projeto
-
-```
-br10-dns-system/
-├── dashboard/              # Dashboard Web
-│   ├── app.py             # Aplicação Flask principal
-│   ├── system_resources.py # Monitor de recursos
-│   ├── templates/         # Templates HTML
-│   ├── static/           # Assets estáticos
-│   └── Dockerfile        # Container dashboard
-├── api-client/           # Cliente API
-│   ├── api_client.py     # Cliente principal
-│   └── Dockerfile       # Container API client
-├── docker-compose.yml   # Orquestração
-├── Makefile            # Comandos úteis
-└── README.md          # Documentação
-```
-
-### Testes
-
-```bash
-# Executar testes
-make test
-
-# Testes específicos
-docker-compose exec br10-dashboard python -m pytest
-docker-compose exec br10-api-client python -m pytest
-```
-
-## 🚨 Troubleshooting
-
-### Problemas Comuns
-
-#### Serviços não iniciam
-
-```bash
-# Verificar logs
-make logs
-
-# Verificar portas
-netstat -tlnp | grep -E ':(53|6379|8084|51320)'
-
-# Verificar recursos
-docker system df
-```
-
-#### Dashboard não carrega
-
-```bash
-# Verificar status do Redis
-docker-compose exec redis redis-cli ping
-
-# Verificar logs do dashboard
-make logs-dashboard
-
-# Testar conectividade
-curl http://localhost:8084/api/stats
-```
-
-#### DNS não resolve
-
-```bash
-# Testar Unbound
-dig @localhost google.com
-
-# Verificar configuração
-docker-compose exec unbound unbound-checkconf
-
-# Verificar logs
-docker-compose logs unbound
-```
-
-#### API Client não sincroniza
-
-```bash
-# Verificar logs
-make logs-api
-
-# Testar conectividade
-docker-compose exec br10-api-client python -c "import requests; print(requests.get('https://httpbin.org/get').status_code)"
-
-# Verificar configuração
-docker-compose exec br10-api-client cat /opt/br10api/config/client.conf
-```
-
-### Logs Importantes
-
-```bash
-# Dashboard
-tail -f dashboard/logs/dashboard.log
-
-# API Client
-tail -f api-client/logs/client.log
-
-# Sistema
-journalctl -u docker -f
-```
-
-### Performance
-
-```bash
-# Monitorar recursos
-make monitor
-
-# Estatísticas Redis
-docker-compose exec redis redis-cli info memory
-
-# Estatísticas Unbound
-docker-compose exec unbound unbound-control stats
-```
-
-## 📞 Suporte
-
-Para suporte e contribuições:
-
-1. **Issues**: Reporte problemas no repositório
-2. **Docs**: Consulte a documentação completa
-3. **Logs**: Sempre inclua logs relevantes
-4. **Config**: Verifique configurações antes de reportar
-
-## 📄 Licença
-
-Este projeto está licenciado sob a MIT License.
+**Sistema de Gerenciamento Centralizado de Listas de Bloqueio de Domínios**
 
 ---
 
-**BR10 DNS System** - Sistema de bloqueio DNS containerizado e profissional 🛡️
+## 1. Visão Geral
+
+O **BR10 Block Web** é um sistema robusto e centralizado para gerenciar listas de bloqueio de domínios (blocklists) e distribuí-las para múltiplos clientes DNS, como Unbound, BIND, ou qualquer sistema que possa consumir uma API REST. O sistema foi completamente refatorado para oferecer alta performance, escalabilidade e um conjunto completo de funcionalidades para automação e auditoria.
+
+Esta nova versão (v3.0.0) substitui a implementação monolítica anterior por uma arquitetura moderna baseada em **Python/Flask**, **PostgreSQL** e **Redis**, totalmente containerizada com **Docker**.
+
+### 1.1. Principais Funcionalidades
+
+- **Dashboard Centralizado**: Interface web para gerenciamento completo de domínios, clientes, histórico e configurações.
+- **Upload de PDF**: Extração automática de domínios a partir de arquivos PDF, com detecção de duplicatas e preview.
+- **API REST para Clientes**: Endpoints seguros para clientes DNS buscarem a lista de domínios em diferentes formatos (JSON, TXT, RPZ).
+- **API Administrativa**: Endpoints para automação de tarefas administrativas, como adicionar domínios, gerenciar clientes e consultar estatísticas.
+- **Sincronização com Feedback**: Mecanismo de sincronização que rastreia o status de aplicação da lista em cada cliente.
+- **Histórico e Auditoria**: Registro detalhado de todas as operações: adições/remoções de domínios, uploads de PDF, sincronizações de clientes e requisições da API.
+- **Cache com Redis**: Cache de alta performance para listas de domínios e estatísticas, reduzindo a carga no banco de dados e garantindo baixa latência.
+- **Rate Limiting**: Proteção contra abuso da API por cliente.
+- **Gerenciamento de Clientes DNS**: Cadastro de clientes com geração de API keys individuais e monitoramento de status (online/offline).
+
+## 2. Arquitetura do Sistema
+
+O sistema é composto por três componentes principais que rodam em containers Docker, orquestrados pelo Docker Compose.
+
+```mermaid
+graph TD
+    subgraph "Ambiente Docker"
+        subgraph "Servidor Web (Flask)"
+            A[Frontend - HTML/JS/CSS]
+            B[Backend - Python/Flask]
+            C[API REST]
+        end
+
+        subgraph "Banco de Dados"
+            D[PostgreSQL 16]
+        end
+
+        subgraph "Cache & Fila"
+            E[Redis 7]
+        end
+    end
+
+    subgraph "Clientes DNS"
+        F[Cliente 1 (Unbound)]
+        G[Cliente 2 (BIND)]
+        H[Cliente N...]
+    end
+
+    subgraph "Administrador"
+        I[Admin Web Browser]
+    end
+
+    I -- HTTPS --> A
+    B -- Conexão TCP --> D
+    B -- Conexão TCP --> E
+    C -- HTTPS/API Key --> F
+    C -- HTTPS/API Key --> G
+    C -- HTTPS/API Key --> H
 ```
 
-Este sistema agora está **completamente dockerizado** e **profissional**, com:
+| Componente | Tecnologia | Responsabilidade |
+| :--- | :--- | :--- |
+| **Servidor Web** | Python 3.11, Flask | Fornece a interface web (frontend), a lógica de negócio e as APIs (backend). |
+| **Banco de Dados** | PostgreSQL 16 | Armazena de forma persistente todos os dados: domínios, usuários, clientes, histórico, etc. |
+| **Cache** | Redis 7 | Armazena em memória a lista de domínios ativos, estatísticas e sessões para acesso rápido. |
+| **Clientes DNS** | - | Sistemas externos (ex: Unbound) que consomem a API para obter a lista de bloqueio. |
 
-✅ **Código refatorado** com classes e tipagem  
-✅ **Tratamento de erros** robusto  
-✅ **Logging estruturado** 
-✅ **Dockerização completa** dos dois serviços  
-✅ **docker-compose** para orquestração  
-✅ **Healthchecks** automáticos  
-✅ **Makefile** para facilitar operações  
-✅ **README.md** completo com todas as instruções  
-✅ **Backup e monitoramento** integrados  
+### 2.1. Fluxo de Dados (Upload de PDF)
 
-O sistema está pronto para produção! 🚀
+1.  **Upload**: O administrador faz o upload de um arquivo PDF pela interface web.
+2.  **Validação**: O sistema valida o arquivo (tamanho, tipo) e o salva temporariamente.
+3.  **Hash**: Um hash SHA-256 do arquivo é calculado para verificar se ele já foi processado.
+4.  **Extração**: O serviço `PDFExtractor` usa `pdfplumber` (e `PyPDF2` como fallback) para extrair todos os domínios do texto do PDF.
+5.  **Adição em Massa**: Os domínios extraídos são adicionados ao banco de dados PostgreSQL. O sistema detecta e ignora duplicatas.
+6.  **Histórico**: Um registro do upload e de cada novo domínio adicionado é criado nas tabelas de histórico.
+7.  **Invalidação de Cache**: O cache da lista de domínios no Redis é invalidado para forçar uma recarga na próxima requisição.
+
+### 2.2. Fluxo de Dados (Sincronização de Cliente)
+
+1.  **Requisição**: Um cliente DNS (ex: um script rodando em um servidor Unbound) faz uma requisição para `GET /api/v1/client/domains`.
+2.  **Autenticação**: A API key enviada no header é validada. O cliente correspondente é identificado.
+3.  **Cache Check**: O sistema verifica se a lista de domínios está no cache do Redis.
+    -   **Cache Hit**: Se estiver, a lista é retornada instantaneamente.
+    -   **Cache Miss**: Se não estiver, a lista é buscada no PostgreSQL, salva no Redis com um TTL (Time-To-Live) e então retornada.
+4.  **Feedback (Opcional)**: O cliente pode informar o status da aplicação da lista através do endpoint `POST /api/v1/client/sync/complete`, permitindo auditoria sobre a distribuição.
+
+## 3. Estrutura do Projeto
+
+O projeto foi organizado de forma modular para facilitar a manutenção e o desenvolvimento.
+
+```
+/br10blockweb
+├── backend/
+│   ├── api/                # Blueprints da API (client e admin)
+│   ├── database/           # Conexão com DB e migrações SQL
+│   ├── models/             # Modelos de dados (classes Python)
+│   ├── services/           # Lógica de negócio (PDF, cache, sync)
+│   ├── utils/              # Funções auxiliares e validadores
+│   ├── app.py              # Aplicação Flask principal
+│   └── config.py           # Configurações
+├── frontend/
+│   ├── static/             # Arquivos CSS, JS, imagens
+│   └── templates/          # Templates HTML (Jinja2)
+├── data/
+│   ├── uploads/            # PDFs enviados
+│   └── exports/            # Arquivos exportados
+├── .env.example            # Exemplo de variáveis de ambiente
+├── docker-compose.yml      # Orquestração dos containers
+├── Dockerfile              # Definição do container da aplicação
+├── requirements.txt        # Dependências Python
+├── README.md               # Esta documentação
+└── API_DOCS.md             # Documentação da API
+```
+
+## 4. Como Executar (Ambiente de Desenvolvimento)
+
+**Pré-requisitos**: Docker e Docker Compose instalados.
+
+1.  **Clonar o Repositório**
+    ```bash
+    git clone https://github.com/Br10Consultoria/br10blockweb.git
+    cd br10blockweb
+    ```
+
+2.  **Configurar Variáveis de Ambiente**
+    Copie o arquivo de exemplo e edite-o se necessário. As senhas e a secret key são geradas aleatoriamente por padrão no `docker-compose.yml`.
+    ```bash
+    cp .env.example .env
+    ```
+
+3.  **Subir os Containers**
+    Use o Docker Compose para construir e iniciar todos os serviços.
+    ```bash
+    docker-compose up --build -d
+    ```
+    O `-d` executa os containers em background.
+
+4.  **Acessar a Aplicação**
+    A aplicação estará disponível em [http://localhost:5000](http://localhost:5000).
+
+5.  **Primeiro Acesso**
+    -   O sistema não cria um usuário padrão. Você precisará criar um.
+    -   Execute o seguinte comando para criar um usuário administrador:
+        ```bash
+        docker-compose exec web python3 -c "from backend.models.user import User; User.create(\"admin\", \"SENHA_FORTE_AQUI\", role=\"admin\")"
+        ```
+    -   **Substitua `SENHA_FORTE_AQUI` por uma senha segura.**
+    -   Agora você pode fazer login com `admin` e a senha que você definiu.
+
+6.  **Parar a Aplicação**
+    ```bash
+    docker-compose down
+    ```
+
+## 5. Documentação da API
+
+A documentação detalhada da API foi movida para um arquivo separado. Por favor, consulte **[API_DOCS.md](API_DOCS.md)**.
+
+## 6. Considerações de Segurança
+
+- **Variáveis de Ambiente**: Nunca comite senhas ou chaves secretas no código. Use o arquivo `.env`.
+- **Senhas de Usuário**: As senhas são armazenadas com hash (SHA-256).
+- **API Keys**: Cada cliente DNS possui uma API key única e pode ser desativado a qualquer momento.
+- **Validação de Uploads**: O sistema valida a extensão e o tamanho dos arquivos PDF para prevenir uploads maliciosos.
+- **Cross-Site Scripting (XSS)**: O uso do motor de templates Jinja2 com auto-escaping padrão ajuda a mitigar riscos de XSS.
+
+---
+
+*Desenvolvido pelo BR10 Team - 2026*

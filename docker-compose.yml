@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: br10-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-br10blockweb}
+      POSTGRES_USER: ${DB_USER:-br10user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-br10pass}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backups:/backups
+    ports:
+      - "5432:5432"
+    networks:
+      - br10-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-br10user} -d ${DB_NAME:-br10blockweb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: br10-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - br10-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # BR10 Dashboard Web
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: br10-dashboard
+    environment:
+      FLASK_ENV: ${FLASK_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-br10blockweb}
+      DB_USER: ${DB_USER:-br10user}
+      DB_PASSWORD: ${DB_PASSWORD:-br10pass}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB:-0}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+    ports:
+      - "8084:8084"
+    networks:
+      - br10-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Unbound DNS Server (opcional, se ainda não estiver rodando)
+  # unbound:
+  #   image: mvance/unbound:latest
+  #   container_name: br10-unbound
+  #   volumes:
+  #     - ./unbound/unbound.conf:/opt/unbound/etc/unbound/unbound.conf:ro
+  #     - unbound-data:/var/lib/unbound
+  #   ports:
+  #     - "53:53/tcp"
+  #     - "53:53/udp"
+  #   networks:
+  #     - br10-network
+  #   restart: unless-stopped
+
+networks:
+  br10-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  unbound-data:
+    driver: local
