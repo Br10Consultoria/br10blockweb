@@ -13,8 +13,6 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./backups:/backups
-    ports:
-      - "5432:5432"
     networks:
       - br10-network
     healthcheck:
@@ -31,8 +29,6 @@ services:
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis-data:/data
-    ports:
-      - "6379:6379"
     networks:
       - br10-network
     healthcheck:
@@ -65,15 +61,58 @@ services:
       - ./logs:/app/logs
       - ./backend:/app/backend
       - ./frontend:/app/frontend
-    ports:
-      - "8084:8084"
     networks:
       - br10-network
+      - network_public
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    labels:
+      # Habilitar Traefik
+      - traefik.enable=true
+      
+      # Configuração da rede (importante para Swarm)
+      - traefik.docker.network=network_public
+      
+      # Router HTTP (redirecionar para HTTPS)
+      - traefik.http.routers.br10blockweb-http.rule=Host(`${TRAEFIK_DOMAIN:-block.br10ia.ia.br}`)
+      - traefik.http.routers.br10blockweb-http.entrypoints=web
+      - traefik.http.routers.br10blockweb-http.middlewares=br10blockweb-redirect-https
+      
+      # Middleware para redirecionar HTTP -> HTTPS
+      - traefik.http.middlewares.br10blockweb-redirect-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.br10blockweb-redirect-https.redirectscheme.permanent=true
+      
+      # Router HTTPS
+      - traefik.http.routers.br10blockweb.rule=Host(`${TRAEFIK_DOMAIN:-block.br10ia.ia.br}`)
+      - traefik.http.routers.br10blockweb.entrypoints=websecure
+      - traefik.http.routers.br10blockweb.tls=true
+      - traefik.http.routers.br10blockweb.tls.certresolver=letsencrypt
+      - traefik.http.routers.br10blockweb.service=br10blockweb
+      
+      # Service (porta interna do container)
+      - traefik.http.services.br10blockweb.loadbalancer.server.port=8084
+      - traefik.http.services.br10blockweb.loadbalancer.passhostheader=true
+      
+      # Middleware SSL Headers (importante para Flask)
+      - traefik.http.middlewares.br10blockweb-sslheader.headers.customrequestheaders.X-Forwarded-Proto=https
+      - traefik.http.middlewares.br10blockweb-sslheader.headers.customrequestheaders.X-Forwarded-Host=${TRAEFIK_DOMAIN:-block.br10ia.ia.br}
+      - traefik.http.middlewares.br10blockweb-sslheader.headers.customrequestheaders.X-Forwarded-Port=443
+      
+      # Aplicar middleware SSL ao router
+      - traefik.http.routers.br10blockweb.middlewares=br10blockweb-sslheader
+      
+      # Headers de segurança (opcional mas recomendado)
+      - traefik.http.middlewares.br10blockweb-security.headers.stsSeconds=31536000
+      - traefik.http.middlewares.br10blockweb-security.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.br10blockweb-security.headers.stsPreload=true
+      - traefik.http.middlewares.br10blockweb-security.headers.forceSTSHeader=true
+      - traefik.http.middlewares.br10blockweb-security.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.br10blockweb-security.headers.browserXssFilter=true
+      - traefik.http.middlewares.br10blockweb-security.headers.frameDeny=true
+      
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
       interval: 30s
@@ -99,6 +138,8 @@ services:
 networks:
   br10-network:
     driver: bridge
+  network_public:
+    external: true
 
 volumes:
   postgres-data:

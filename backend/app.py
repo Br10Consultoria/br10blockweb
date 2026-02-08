@@ -17,6 +17,7 @@ from pathlib import Path
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from backend.config import Config
 from backend.database.db import db
@@ -77,11 +78,51 @@ def create_app(config=None):
     else:
         logger.warning("Cache Redis não disponível - funcionando sem cache")
     
+    # Configurar ProxyFix para funcionar atrás de proxy reverso (Traefik, Nginx, etc)
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=1,
+        x_proto=1,
+        x_host=1,
+        x_port=1,
+        x_prefix=0
+    )
+    logger.info("ProxyFix configurado para suporte a proxy reverso")
+    
     return app
 
 
 # Criar aplicação
 app = create_app()
+
+
+# === Rotas de Sistema ===
+
+@app.route('/health')
+def health():
+    """Endpoint de healthcheck para Docker e Traefik"""
+    try:
+        # Verificar banco de dados
+        db_status = "ok"
+        try:
+            Domain.count()
+        except:
+            db_status = "error"
+        
+        # Verificar Redis
+        redis_status = "ok" if cache.is_available else "unavailable"
+        
+        return jsonify({
+            "status": "healthy",
+            "database": db_status,
+            "cache": redis_status,
+            "version": "3.0.0"
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e)
+        }), 500
 
 
 # === Rotas de Autenticação ===
