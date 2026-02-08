@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-br10blockweb}
+      POSTGRES_USER: ${DB_USER:-br10user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-br10pass}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./backups:/backups
+    networks:
+      - br10-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-br10user} -d ${DB_NAME:-br10blockweb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - br10-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # BR10 Dashboard Web
+  dashboard:
+    image: br10blockweb:latest
+    environment:
+      FLASK_ENV: ${FLASK_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-br10blockweb}
+      DB_USER: ${DB_USER:-br10user}
+      DB_PASSWORD: ${DB_PASSWORD:-br10pass}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB:-0}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - br10-network
+      - network_public
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        # Habilitar Traefik
+        - traefik.enable=true
+        
+        # Configuração da rede para Swarm
+        - traefik.docker.network=network_public
+        
+        # Router HTTP (redirecionar para HTTPS)
+        - traefik.http.routers.br10blockweb-http.rule=Host(`${TRAEFIK_DOMAIN:-block.br10ia.ia.br}`)
+        - traefik.http.routers.br10blockweb-http.entrypoints=web
+        - traefik.http.routers.br10blockweb-http.middlewares=br10blockweb-redirect-https
+        
+        # Middleware para redirecionar HTTP -> HTTPS
+        - traefik.http.middlewares.br10blockweb-redirect-https.redirectscheme.scheme=https
+        - traefik.http.middlewares.br10blockweb-redirect-https.redirectscheme.permanent=true
+        
+        # Router HTTPS
+        - traefik.http.routers.br10blockweb.rule=Host(`${TRAEFIK_DOMAIN:-block.br10ia.ia.br}`)
+        - traefik.http.routers.br10blockweb.entrypoints=websecure
+        - traefik.http.routers.br10blockweb.tls=true
+        - traefik.http.routers.br10blockweb.tls.certresolver=letsencrypt
+        - traefik.http.routers.br10blockweb.service=br10blockweb
+        
+        # Service (porta interna do container)
+        - traefik.http.services.br10blockweb.loadbalancer.server.port=8084
+        - traefik.http.services.br10blockweb.loadbalancer.passhostheader=true
+        
+        # Middleware SSL Headers
+        - traefik.http.middlewares.br10blockweb-sslheader.headers.customrequestheaders.X-Forwarded-Proto=https
+        - traefik.http.middlewares.br10blockweb-sslheader.headers.customrequestheaders.X-Forwarded-Host=${TRAEFIK_DOMAIN:-block.br10ia.ia.br}
+        - traefik.http.middlewares.br10blockweb-sslheader.headers.customrequestheaders.X-Forwarded-Port=443
+        
+        # Aplicar middleware SSL ao router
+        - traefik.http.routers.br10blockweb.middlewares=br10blockweb-sslheader
+        
+        # Headers de segurança
+        - traefik.http.middlewares.br10blockweb-security.headers.stsSeconds=31536000
+        - traefik.http.middlewares.br10blockweb-security.headers.stsIncludeSubdomains=true
+        - traefik.http.middlewares.br10blockweb-security.headers.stsPreload=true
+        - traefik.http.middlewares.br10blockweb-security.headers.forceSTSHeader=true
+        - traefik.http.middlewares.br10blockweb-security.headers.contentTypeNosniff=true
+        - traefik.http.middlewares.br10blockweb-security.headers.browserXssFilter=true
+        - traefik.http.middlewares.br10blockweb-security.headers.frameDeny=true
+
+networks:
+  br10-network:
+    driver: overlay
+    attachable: true
+  network_public:
+    external: true
+
+volumes:
+  postgres-data:
+  redis-data:
