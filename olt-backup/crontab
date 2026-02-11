@@ -1,0 +1,4 @@
+# Executa backup de OLTs às 13:00 e 22:00 (horário local conforme TZ)
+0 13 * * * cd /app && /usr/local/bin/python3 /app/backup_olts.py >> /var/log/cron.log 2>&1
+0 22 * * * cd /app && /usr/local/bin/python3 /app/backup_olts.py >> /var/log/cron.log 2>&1
+# linha em branco obrigatória para cron

@@ -1,0 +1,13 @@
+# Variáveis de ambiente com credenciais
+.env
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Backups locais
+backups/
