@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
 Script unificado de backup de OLTs (Datacom, ZTE, ZTE Titan)
-com envio automático de notificações para o Telegram.
+com envio automático de notificações e arquivos para o Telegram.
 
-- Cada OLT é processada individualmente.
-- Logo após o backup de cada OLT, uma mensagem é enviada ao Telegram
-  informando sucesso ou falha.
-- Ao final, um resumo geral é enviado.
+Fluxo:
+  1. Faz backup de uma OLT.
+  2. Para OLTs ZTE: baixa o startrun.dat do servidor FTP, renomeia
+     com o nome da OLT (ex: zte_aramari_startrun_110226_1300.dat)
+     e envia o arquivo renomeado ao Telegram.
+  3. Envia notificação de sucesso/falha ao Telegram.
+  4. Aguarda 10 segundos para garantir o envio.
+  5. Só então inicia o backup da próxima OLT.
 
 Todas as credenciais são lidas de variáveis de ambiente (.env).
 """
@@ -16,6 +20,8 @@ import sys
 import time
 import telnetlib
 import logging
+import ftplib
+import shutil
 from datetime import datetime
 
 import requests
@@ -66,13 +72,15 @@ def telegram_send_message(text: str):
         log.error("Exceção ao enviar mensagem Telegram: %s", exc)
 
 
-def telegram_send_file(filepath: str):
-    """Envia um arquivo para o chat do Telegram."""
+def telegram_send_file(filepath: str, caption: str = ""):
+    """Envia um arquivo para o chat do Telegram com legenda opcional."""
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         log.warning("Telegram não configurado. Arquivo não enviado.")
         return False
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument"
     data = {"chat_id": TELEGRAM_CHAT_ID}
+    if caption:
+        data["caption"] = caption
     try:
         with open(filepath, "rb") as f:
             resp = requests.post(url, data=data, files={"document": f}, timeout=120)
@@ -85,6 +93,39 @@ def telegram_send_file(filepath: str):
     except Exception as exc:
         log.error("Exceção ao enviar arquivo %s: %s", filepath, exc)
         return False
+
+
+# ============================================================
+# FTP helper — baixar e renomear startrun.dat
+# ============================================================
+
+def ftp_download_and_rename(olt_name: str) -> str | None:
+    """
+    Conecta ao servidor FTP, baixa o arquivo startrun.dat,
+    renomeia com o nome da OLT + timestamp e salva em BACKUP_DIR.
+    Retorna o caminho local do arquivo renomeado ou None em caso de erro.
+    """
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+
+    ts = datetime.now().strftime("%d%m%y_%H%M")
+    new_filename = f"{olt_name.lower()}_startrun_{ts}.dat"
+    local_path = os.path.join(BACKUP_DIR, new_filename)
+
+    try:
+        log.info("Conectando ao FTP %s para baixar startrun.dat...", FTP_IP)
+        ftp = ftplib.FTP(FTP_IP, timeout=30)
+        ftp.login(user=FTP_USER, passwd=FTP_PASSWORD)
+
+        with open(local_path, "wb") as f:
+            ftp.retrbinary("RETR startrun.dat", f.write)
+
+        ftp.quit()
+        log.info("Arquivo baixado e renomeado para %s", new_filename)
+        return local_path
+
+    except Exception as exc:
+        log.error("Erro ao baixar startrun.dat do FTP para %s: %s", olt_name, exc)
+        return None
 
 
 # ============================================================
@@ -150,11 +191,15 @@ def backup_olt_datacom(olt_name: str, olt_info: dict) -> str | None:
 
 
 # ============================================================
-# Backup ZTE
+# Backup ZTE (padrão)
 # ============================================================
 
 def backup_zte_olt(olt_name: str, olt_info: dict) -> str | None:
-    """Realiza backup de uma OLT ZTE via Telnet + FTP."""
+    """
+    Realiza backup de uma OLT ZTE via Telnet + FTP.
+    Comando: file upload cfg-startup startrun.dat ftp ipaddress <IP> user <U> password <P>
+    Após o backup, baixa o startrun.dat do FTP, renomeia e retorna o caminho local.
+    """
     try:
         log.info("Conectando à OLT %s (%s) via Telnet...", olt_name, olt_info["ip"])
 
@@ -172,15 +217,19 @@ def backup_zte_olt(olt_name: str, olt_info: dict) -> str | None:
             f"file upload cfg-startup startrun.dat ftp ipaddress {FTP_IP} "
             f"user {FTP_USER} password {FTP_PASSWORD}"
         )
-        send_command(tn, ftp_cmd)
-        send_command(tn, "manual-backup all")
+        send_command(tn, ftp_cmd, wait_time=5)
+
+        # Aguardar a transferência completar
+        log.info("Aguardando 60s para garantir que o upload FTP foi concluído...")
+        time.sleep(60)
 
         tn.write(b"exit\n")
         tn.close()
         log.info("Backup da OLT %s via Telnet concluído.", olt_name)
 
-        ts = datetime.now().strftime("%d%m%y_%H%M")
-        return f"backupolt{olt_name.lower()}{ts}.dat"
+        # Baixar do FTP e renomear com o nome da OLT
+        local_file = ftp_download_and_rename(olt_name)
+        return local_file
 
     except Exception as exc:
         log.error("Erro ao fazer backup da OLT %s: %s", olt_name, exc)
@@ -192,7 +241,11 @@ def backup_zte_olt(olt_name: str, olt_info: dict) -> str | None:
 # ============================================================
 
 def backup_zte_titan(olt_name: str, olt_info: dict) -> str | None:
-    """Realiza backup da OLT ZTE Titan Canavieiras via Telnet + FTP."""
+    """
+    Realiza backup da OLT ZTE Titan via Telnet + FTP.
+    Comando: copy ftp root: /datadisk0/DATA0/startrun.dat //<IP>/startrun.dat@<U>:<P>
+    Após o backup, baixa o startrun.dat do FTP, renomeia e retorna o caminho local.
+    """
     try:
         log.info("Conectando à OLT %s (%s) via Telnet...", olt_name, olt_info["ip"])
 
@@ -212,15 +265,16 @@ def backup_zte_titan(olt_name: str, olt_info: dict) -> str | None:
         )
         send_command(tn, backup_cmd, wait_time=10)
 
-        log.info("Aguardando 30s para conclusão do backup ZTE Titan...")
-        time.sleep(30)
+        log.info("Aguardando 60s para conclusão do backup ZTE Titan...")
+        time.sleep(60)
 
         tn.write(b"exit\n")
         tn.close()
         log.info("Backup da OLT %s concluído.", olt_name)
 
-        ts = datetime.now().strftime("%d%m%y_%H%M")
-        return f"backupolt{olt_name.lower()}{ts}.dat"
+        # Baixar do FTP e renomear com o nome da OLT
+        local_file = ftp_download_and_rename(olt_name)
+        return local_file
 
     except Exception as exc:
         log.error("Erro ao fazer backup da OLT %s: %s", olt_name, exc)
@@ -228,43 +282,17 @@ def backup_zte_titan(olt_name: str, olt_info: dict) -> str | None:
 
 
 # ============================================================
-# Envio de backups locais para Telegram
-# ============================================================
-
-def enviar_backups_telegram():
-    """Busca arquivos de backup no diretório local, envia ao Telegram e apaga."""
-    if not os.path.isdir(BACKUP_DIR):
-        log.info("Diretório de backups %s não encontrado.", BACKUP_DIR)
-        return
-
-    arquivos = [f for f in os.listdir(BACKUP_DIR) if f.endswith((".txt", ".dat"))]
-    if not arquivos:
-        log.info("Nenhum arquivo de backup local para enviar ao Telegram.")
-        return
-
-    enviados = 0
-    for arq in arquivos:
-        caminho = os.path.join(BACKUP_DIR, arq)
-        if telegram_send_file(caminho):
-            enviados += 1
-            try:
-                os.remove(caminho)
-                log.info("Arquivo %s removido após envio.", arq)
-            except Exception as exc:
-                log.error("Erro ao remover %s: %s", arq, exc)
-
-    if enviados:
-        telegram_send_message(
-            f"✅ {enviados} arquivo(s) de backup local enviado(s) com sucesso."
-        )
-
-
-# ============================================================
 # Função principal
 # ============================================================
 
 def run_backups():
-    """Executa o backup de todas as OLTs, notificando o Telegram após cada uma."""
+    """
+    Executa o backup de todas as OLTs, uma por vez.
+    Após cada OLT:
+      - Envia o arquivo de backup ao Telegram (quando disponível).
+      - Envia mensagem de sucesso/falha.
+      - Aguarda 10s antes de iniciar a próxima.
+    """
     olts = get_olts()
     total = len(olts)
 
@@ -289,30 +317,48 @@ def run_backups():
             telegram_send_message(
                 f"⚠️ {progresso} {olt_name} — sem IP configurado, pulando."
             )
+            time.sleep(10)
             continue
 
         olt_type = olt_info.get("type", "")
-        backup_file = None
+        resultado = None
 
+        # ----- Executa o backup conforme o tipo -----
         if olt_type == "datacom":
-            backup_file = backup_olt_datacom(olt_name, olt_info)
+            resultado = backup_olt_datacom(olt_name, olt_info)
         elif olt_type == "zte":
-            backup_file = backup_zte_olt(olt_name, olt_info)
+            resultado = backup_zte_olt(olt_name, olt_info)
         elif olt_type == "zte_titan":
-            backup_file = backup_zte_titan(olt_name, olt_info)
+            resultado = backup_zte_titan(olt_name, olt_info)
         else:
             log.warning("Tipo desconhecido para OLT %s: %s", olt_name, olt_type)
             resultados_erro.append(olt_name)
             telegram_send_message(
                 f"⚠️ {progresso} {olt_name} — tipo desconhecido '{olt_type}'."
             )
+            time.sleep(10)
             continue
 
-        # ---- Notifica o Telegram imediatamente após cada OLT ----
-        if backup_file:
+        # ----- Envia arquivo + notificação ao Telegram -----
+        if resultado:
             resultados_ok.append(olt_name)
+
+            # Se for ZTE/ZTE Titan, resultado é o caminho local do arquivo renomeado
+            if olt_type in ("zte", "zte_titan") and resultado and os.path.isfile(resultado):
+                nome_arquivo = os.path.basename(resultado)
+                telegram_send_file(
+                    resultado,
+                    caption=f"📦 Backup {olt_name} — {nome_arquivo}"
+                )
+                # Remove o arquivo local após envio
+                try:
+                    os.remove(resultado)
+                    log.info("Arquivo local %s removido após envio.", resultado)
+                except Exception as exc:
+                    log.error("Erro ao remover %s: %s", resultado, exc)
+
             telegram_send_message(
-                f"✅ {progresso} {olt_name} — backup concluído ({backup_file})"
+                f"✅ {progresso} {olt_name} — backup concluído com sucesso"
             )
         else:
             resultados_erro.append(olt_name)
@@ -320,10 +366,11 @@ def run_backups():
                 f"❌ {progresso} {olt_name} — falha no backup"
             )
 
-    # Enviar backups locais (se houver) para Telegram
-    enviar_backups_telegram()
+        # ----- Aguarda 10s para garantir envio antes da próxima OLT -----
+        log.info("Aguardando 10s antes de iniciar a próxima OLT...")
+        time.sleep(10)
 
-    # Resumo final via Telegram
+    # ---- Resumo final ----
     ts_fim = datetime.now().strftime("%d/%m/%Y %H:%M")
     resumo = (
         f"📋 Resumo do backup OLT — {ts_fim}\n\n"
