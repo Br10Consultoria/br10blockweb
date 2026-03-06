@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% block title %}Domínios Bloqueados - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-0"><i class="fas fa-ban text-danger"></i> Domínios Bloqueados</h1>
+            <p class="text-muted mb-0">Total de <strong>{{ total }}</strong> domínios ativos</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('domains_upload') }}" class="btn btn-success">
+                <i class="fas fa-upload"></i> Importar PDF
+            </a>
+            <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addDomainModal">
+                <i class="fas fa-plus"></i> Adicionar Domínio
+            </button>
+        </div>
+    </div>
+
+    <!-- Search Bar -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body py-3">
+            <form method="GET" action="{{ url_for('domains_list') }}" class="d-flex gap-3 align-items-center">
+                <div class="flex-grow-1">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <input type="text" class="form-control form-control-lg" name="search"
+                               value="{{ search }}" placeholder="Pesquisar domínios... (ex: facebook, .com.br)">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-lg">
+                    <i class="fas fa-search"></i> Buscar
+                </button>
+                {% if search %}
+                <a href="{{ url_for('domains_list') }}" class="btn btn-outline-secondary btn-lg">
+                    <i class="fas fa-times"></i> Limpar
+                </a>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <!-- Results -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                {% if search %}
+                    <i class="fas fa-filter text-primary"></i> Resultados para "<strong>{{ search }}</strong>"
+                    <span class="badge bg-primary ms-2">{{ total }} encontrados</span>
+                {% else %}
+                    <i class="fas fa-list text-primary"></i> Lista de Domínios
+                    <span class="badge bg-secondary ms-2">{{ total }} total</span>
+                {% endif %}
+            </h5>
+            <div class="d-flex gap-2">
+                <a href="/api/v1/client/domains?format=txt" target="_blank" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-download"></i> Exportar TXT
+                </a>
+                <a href="/api/v1/client/domains?format=rpz" target="_blank" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-download"></i> Exportar RPZ
+                </a>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            {% if domains %}
+            <div class="table-responsive">
+                <table class="table table-hover table-striped mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>#</th>
+                            <th><i class="fas fa-globe"></i> Domínio</th>
+                            <th><i class="fas fa-tag"></i> Origem</th>
+                            <th><i class="fas fa-user"></i> Adicionado por</th>
+                            <th><i class="fas fa-calendar"></i> Data</th>
+                            <th><i class="fas fa-circle"></i> Status</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for domain in domains %}
+                        <tr>
+                            <td class="text-muted small">{{ loop.index }}</td>
+                            <td>
+                                <code class="text-dark fw-semibold">{{ domain.domain }}</code>
+                            </td>
+                            <td>
+                                {% if domain.source == 'pdf' %}
+                                    <span class="badge bg-danger"><i class="fas fa-file-pdf"></i> PDF</span>
+                                {% elif domain.source == 'manual' %}
+                                    <span class="badge bg-primary"><i class="fas fa-keyboard"></i> Manual</span>
+                                {% elif domain.source == 'api' %}
+                                    <span class="badge bg-info"><i class="fas fa-code"></i> API</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ domain.source or 'N/A' }}</span>
+                                {% endif %}
+                                {% if domain.source_reference %}
+                                    <small class="text-muted d-block">{{ domain.source_reference[:30] }}{% if domain.source_reference|length > 30 %}...{% endif %}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <small>{{ domain.added_by or '-' }}</small>
+                            </td>
+                            <td>
+                                <small class="text-muted">
+                                    {{ domain.added_at.strftime('%d/%m/%Y %H:%M') if domain.added_at else '-' }}
+                                </small>
+                            </td>
+                            <td>
+                                {% if domain.active %}
+                                    <span class="badge bg-success"><i class="fas fa-check"></i> Ativo</span>
+                                {% else %}
+                                    <span class="badge bg-secondary"><i class="fas fa-ban"></i> Inativo</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-danger btn-sm"
+                                            onclick="removeDomain({{ domain.id }}, '{{ domain.domain }}')"
+                                            title="Remover domínio">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if total > 50 %}
+            <div class="p-3 text-center text-muted border-top">
+                <i class="fas fa-info-circle"></i>
+                Exibindo os 50 primeiros de {{ total }} domínios.
+                {% if search %}
+                    Refine a pesquisa para resultados mais específicos.
+                {% else %}
+                    Use a pesquisa para filtrar.
+                {% endif %}
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="text-center p-5">
+                {% if search %}
+                    <i class="fas fa-search fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">Nenhum domínio encontrado para "{{ search }}"</h5>
+                    <a href="{{ url_for('domains_list') }}" class="btn btn-outline-primary mt-2">Ver todos</a>
+                {% else %}
+                    <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">Nenhum domínio cadastrado</h5>
+                    <a href="{{ url_for('domains_upload') }}" class="btn btn-success mt-2">
+                        <i class="fas fa-upload"></i> Importar PDF
+                    </a>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Add Domain Modal -->
+<div class="modal fade" id="addDomainModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-plus-circle text-success"></i> Adicionar Domínio</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Domínio</label>
+                    <input type="text" class="form-control" id="new-domain" placeholder="exemplo.com.br">
+                    <div class="form-text">Digite o domínio sem http:// ou www.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Observações (opcional)</label>
+                    <textarea class="form-control" id="new-domain-notes" rows="2" placeholder="Motivo do bloqueio..."></textarea>
+                </div>
+                <div id="add-domain-alert"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success" onclick="addDomain()">
+                    <i class="fas fa-plus"></i> Adicionar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Remove Confirm Modal -->
+<div class="modal fade" id="removeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-trash text-danger"></i> Remover Domínio</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Tem certeza que deseja remover o domínio:</p>
+                <code id="remove-domain-name" class="fs-5"></code>
+                <div class="form-check mt-3">
+                    <input class="form-check-input" type="checkbox" id="permanent-remove">
+                    <label class="form-check-label" for="permanent-remove">
+                        Remover permanentemente (não pode ser desfeito)
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-danger" id="confirm-remove-btn">
+                    <i class="fas fa-trash"></i> Remover
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let removeDomainId = null;
+
+async function addDomain() {
+    const domain = document.getElementById('new-domain').value.trim();
+    const notes = document.getElementById('new-domain-notes').value.trim();
+    const alertEl = document.getElementById('add-domain-alert');
+    
+    if (!domain) {
+        alertEl.innerHTML = '<div class="alert alert-danger">Por favor, informe o domínio.</div>';
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/v1/admin/domains', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domain, notes })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            alertEl.innerHTML = '<div class="alert alert-success"><i class="fas fa-check"></i> Domínio adicionado com sucesso!</div>';
+            setTimeout(() => { location.reload(); }, 1500);
+        } else {
+            alertEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> ${data.error}</div>`;
+        }
+    } catch (e) {
+        alertEl.innerHTML = '<div class="alert alert-danger">Erro ao adicionar domínio.</div>';
+    }
+}
+
+function removeDomain(id, name) {
+    removeDomainId = id;
+    document.getElementById('remove-domain-name').textContent = name;
+    document.getElementById('permanent-remove').checked = false;
+    new bootstrap.Modal(document.getElementById('removeModal')).show();
+}
+
+document.getElementById('confirm-remove-btn').addEventListener('click', async () => {
+    if (!removeDomainId) return;
+    const permanent = document.getElementById('permanent-remove').checked;
+    
+    try {
+        const response = await fetch(`/api/v1/admin/domains/${removeDomainId}?permanent=${permanent}`, {
+            method: 'DELETE'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Erro ao remover domínio: ' + data.error);
+        }
+    } catch (e) {
+        alert('Erro ao remover domínio.');
+    }
+});
+
+// Enter key para adicionar domínio
+document.getElementById('new-domain').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') addDomain();
+});
+</script>
+{% endblock %}

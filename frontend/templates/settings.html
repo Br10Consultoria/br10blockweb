@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block title %}Configurações - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <!-- Header -->
+    <div class="mb-4">
+        <h1 class="h3 mb-0"><i class="fas fa-cog text-secondary"></i> Configurações do Sistema</h1>
+        <p class="text-muted mb-0">Informações e estatísticas do sistema</p>
+    </div>
+
+    <div class="row g-4">
+        <!-- System Info -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-info-circle text-info"></i> Informações do Sistema</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tr>
+                            <th class="text-muted">Versão</th>
+                            <td><span class="badge bg-primary">{{ app_version }}</span></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Aplicação</th>
+                            <td>{{ app_name }}</td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Usuário Logado</th>
+                            <td><i class="fas fa-user"></i> {{ user.username }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- DB Stats -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-database text-primary"></i> Banco de Dados</h5>
+                </div>
+                <div class="card-body">
+                    {% if db_stats %}
+                    <table class="table table-sm">
+                        <tr>
+                            <th class="text-muted">Total de Domínios</th>
+                            <td><span class="badge bg-primary">{{ db_stats.domains }}</span></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Clientes DNS</th>
+                            <td><span class="badge bg-success">{{ db_stats.clients }}</span></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Uploads de PDF</th>
+                            <td><span class="badge bg-info">{{ db_stats.uploads }}</span></td>
+                        </tr>
+                    </table>
+                    {% else %}
+                    <p class="text-muted">Dados não disponíveis</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Redis Stats -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-bolt text-warning"></i> Cache Redis</h5>
+                </div>
+                <div class="card-body">
+                    {% if redis_stats %}
+                    <table class="table table-sm">
+                        <tr>
+                            <th class="text-muted">Status</th>
+                            <td>
+                                {% if redis_stats.available %}
+                                    <span class="badge bg-success"><i class="fas fa-check"></i> Disponível</span>
+                                {% else %}
+                                    <span class="badge bg-danger"><i class="fas fa-times"></i> Indisponível</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% if redis_stats.available %}
+                        <tr>
+                            <th class="text-muted">Chaves em Cache</th>
+                            <td>{{ redis_stats.keys or 0 }}</td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Memória Usada</th>
+                            <td>{{ redis_stats.memory or 'N/A' }}</td>
+                        </tr>
+                        {% endif %}
+                    </table>
+                    {% else %}
+                    <p class="text-muted">Redis não disponível</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- API Endpoints -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-plug text-success"></i> Endpoints da API</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tr>
+                            <th class="text-muted">Domínios (TXT)</th>
+                            <td><code class="small">/api/v1/client/domains?format=txt</code></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Domínios (RPZ)</th>
+                            <td><code class="small">/api/v1/client/domains?format=rpz</code></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Domínios (JSON)</th>
+                            <td><code class="small">/api/v1/client/domains</code></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Status</th>
+                            <td><code class="small">/api/v1/client/status</code></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Ping</th>
+                            <td><code class="small">/api/v1/client/ping</code></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Health</th>
+                            <td><code class="small">/health</code></td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Change Password -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-lock text-danger"></i> Alterar Senha</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Senha Atual</label>
+                        <input type="password" class="form-control" id="current-password">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Nova Senha</label>
+                        <input type="password" class="form-control" id="new-password">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Confirmar Nova Senha</label>
+                        <input type="password" class="form-control" id="confirm-password">
+                    </div>
+                    <div id="password-alert"></div>
+                    <button class="btn btn-danger" onclick="changePassword()">
+                        <i class="fas fa-save"></i> Salvar Nova Senha
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cache Management -->
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-broom text-warning"></i> Gerenciamento de Cache</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">Limpe o cache para forçar a recarga dos dados do banco de dados.</p>
+                    <div id="cache-alert"></div>
+                    <button class="btn btn-warning" onclick="clearCache()">
+                        <i class="fas fa-trash"></i> Limpar Cache Redis
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function changePassword() {
+    const current = document.getElementById('current-password').value;
+    const newPass = document.getElementById('new-password').value;
+    const confirm = document.getElementById('confirm-password').value;
+    const alertEl = document.getElementById('password-alert');
+    
+    if (!current || !newPass || !confirm) {
+        alertEl.innerHTML = '<div class="alert alert-danger">Preencha todos os campos.</div>';
+        return;
+    }
+    if (newPass !== confirm) {
+        alertEl.innerHTML = '<div class="alert alert-danger">As senhas não coincidem.</div>';
+        return;
+    }
+    if (newPass.length < 6) {
+        alertEl.innerHTML = '<div class="alert alert-danger">A senha deve ter pelo menos 6 caracteres.</div>';
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/v1/admin/users/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ current_password: current, new_password: newPass })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            alertEl.innerHTML = '<div class="alert alert-success"><i class="fas fa-check"></i> Senha alterada com sucesso!</div>';
+            document.getElementById('current-password').value = '';
+            document.getElementById('new-password').value = '';
+            document.getElementById('confirm-password').value = '';
+        } else {
+            alertEl.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        }
+    } catch (e) {
+        alertEl.innerHTML = '<div class="alert alert-danger">Erro ao alterar senha.</div>';
+    }
+}
+
+async function clearCache() {
+    const alertEl = document.getElementById('cache-alert');
+    if (!confirm('Limpar todo o cache Redis?')) return;
+    
+    try {
+        const response = await fetch('/api/v1/admin/cache/clear', { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            alertEl.innerHTML = '<div class="alert alert-success"><i class="fas fa-check"></i> Cache limpo com sucesso!</div>';
+        } else {
+            alertEl.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        }
+    } catch (e) {
+        alertEl.innerHTML = '<div class="alert alert-danger">Erro ao limpar cache.</div>';
+    }
+}
+</script>
+{% endblock %}

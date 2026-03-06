@@ -6,6 +6,31 @@
         line-height: 1.4;
         text-align: center;
     }
+    .sync-status-badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.75em;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .sync-status-badge.online { background: rgba(0,242,195,0.2); color: #00f2c3; border: 1px solid #00f2c3; }
+    .sync-status-badge.offline { background: rgba(253,93,147,0.2); color: #fd5d93; border: 1px solid #fd5d93; }
+    .sync-status-badge.unknown { background: rgba(179,179,179,0.2); color: #b3b3b3; border: 1px solid #b3b3b3; }
+    #br10-sync-card { display: none; }
+    .br10-sync-log {
+        background: #1a1a2e;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 10px;
+        font-family: monospace;
+        font-size: 0.8em;
+        max-height: 150px;
+        overflow-y: auto;
+        color: #00f2c3;
+        white-space: pre-wrap;
+        margin-top: 10px;
+    }
 </style>
 {% endblock %} {% block title %}Dashboard - BR10 DNS Blocklist{% endblock %} {% block content %}
 <div class="header">
@@ -72,7 +97,7 @@
         </div>
         <div class="card-body">
             <div class="actions-container">
-                <button id="btn-refresh" class="action-button refresh-button" onclick="loadStats(); loadCacheByIpStats(); loadTopDomains(); return false;">
+                <button id="btn-refresh" class="action-button refresh-button" onclick="loadStats(); loadCacheByIpStats(); loadTopDomains(); loadBR10Status(); return false;">
                     <i class="fas fa-sync-alt"></i> Atualizar Estatísticas
                 </button>
                 <button id="btn-update-list" class="action-button sync-button" onclick="window.location.href='/domains'; return false;">
@@ -81,11 +106,47 @@
                 <button id="btn-view-clients" class="action-button" style="background-color: var(--accent-purple);" onclick="window.location.href='/clients'; return false;">
                     <i class="fas fa-users"></i> Monitorar Clientes DNS
                 </button>
+                <button id="btn-br10-sync" class="action-button" style="background-color: var(--accent-orange);" onclick="syncWithBR10Server(false); return false;">
+                    <i class="fas fa-cloud-download-alt"></i> Sincronizar com Servidor BR10
+                </button>
+                <button id="btn-br10-sync-force" class="action-button" style="background-color: var(--accent-red);" onclick="syncWithBR10Server(true); return false;">
+                    <i class="fas fa-redo"></i> Forçar Sincronização
+                </button>
             </div>
             <div id="action-result" class="action-result"></div>
         </div>
     </div>
 </div>
+
+<!-- Card de Status de Sincronização BR10 -->
+<div id="br10-sync-card" class="stats-card" style="margin-top: 20px;">
+    <div class="card-header">
+        <h5 class="card-title"><i class="fas fa-server"></i> Status de Sincronização — Servidor BR10 Block Web</h5>
+    </div>
+    <div class="card-body">
+        <div class="stats-container">
+            <div class="stat-box">
+                <h2 id="br10-server-status"><span class="sync-status-badge unknown">-</span></h2>
+                <p>Status do Servidor</p>
+            </div>
+            <div class="stat-box">
+                <h2 id="br10-server-domains">-</h2>
+                <p>Domínios no Servidor</p>
+            </div>
+            <div class="stat-box">
+                <h2 id="br10-last-sync">-</h2>
+                <p>Última Sincronização</p>
+            </div>
+            <div class="stat-box">
+                <h2 id="br10-local-domains">-</h2>
+                <p>Domínios Locais</p>
+            </div>
+        </div>
+        <div id="br10-sync-result" class="action-result" style="margin-top: 10px;"></div>
+        <div id="br10-sync-log" class="br10-sync-log" style="display:none;"></div>
+    </div>
+</div>
+
 <div class="clients-card">
     <div class="card-header">
         <h5 class="card-title">Principais Dominios Bloqueados</h5>
@@ -131,7 +192,6 @@
                     return;
                 }
                 
-                // Exibir estatísticas de cache por tipo de IP
                 $('#ip-distribution').html(`
                     <div class="ip-cache-stats">
                         <div>IPv4: ${data.ipv4_hit_percent || 0}% hit</div>
@@ -141,7 +201,6 @@
             },
             error: function(xhr, status, error) {
                 console.error('Erro ao carregar estatísticas de cache:', error);
-                // Em caso de erro, mostrar valor padrão
                 $('#ip-distribution').html(`
                     <div class="ip-cache-stats">
                         <div>IPv4: 0% hit</div>
@@ -151,15 +210,130 @@
             }
         });
     }
+
+    // Carregar status de sincronização com o servidor BR10
+    function loadBR10Status() {
+        $.ajax({
+            url: '/api/br10/status',
+            method: 'GET',
+            success: function(data) {
+                if (!data.server_configured) {
+                    // Servidor não configurado - mostrar card com aviso
+                    $('#br10-sync-card').show();
+                    $('#br10-server-status').html('<span class="sync-status-badge unknown">Não Configurado</span>');
+                    $('#br10-server-domains').text('-');
+                    $('#br10-last-sync').text('-');
+                    $('#br10-local-domains').text('-');
+                    $('#br10-sync-result').html('<div class="alert" style="background:rgba(255,141,114,0.15);color:#ff8d72;border:1px solid #ff8d72;padding:8px 12px;border-radius:6px;font-size:0.85em;">Configure <strong>BR10_SERVER_URL</strong> e <strong>BR10_API_KEY</strong> no arquivo <strong>.env</strong> para habilitar a sincronização automática.</div>');
+                    return;
+                }
+
+                $('#br10-sync-card').show();
+
+                // Status do servidor
+                if (data.server_info && !data.server_info.error) {
+                    $('#br10-server-status').html('<span class="sync-status-badge online">Online</span>');
+                    const totalDomains = data.server_info.total_domains || data.server_info.domains_count || '-';
+                    $('#br10-server-domains').text(typeof totalDomains === 'number' ? totalDomains.toLocaleString() : totalDomains);
+                } else {
+                    $('#br10-server-status').html('<span class="sync-status-badge offline">Offline</span>');
+                    $('#br10-server-domains').text('-');
+                }
+
+                // Última sincronização
+                const lastSync = (data.sync_state && data.sync_state.last_sync) || 
+                                 (data.redis_state && data.redis_state.last_sync) || null;
+                if (lastSync) {
+                    const dt = new Date(lastSync);
+                    $('#br10-last-sync').text(dt.toLocaleString('pt-BR'));
+                } else {
+                    $('#br10-last-sync').text('Nunca');
+                }
+
+                // Domínios locais
+                const localDomains = (data.sync_state && data.sync_state.domains_count) ||
+                                     (data.redis_state && data.redis_state.domains_count) || '-';
+                $('#br10-local-domains').text(typeof localDomains === 'number' ? localDomains.toLocaleString() : localDomains);
+            },
+            error: function() {
+                $('#br10-sync-card').show();
+                $('#br10-server-status').html('<span class="sync-status-badge offline">Erro</span>');
+            }
+        });
+    }
+
+    // Sincronizar com o servidor BR10
+    function syncWithBR10Server(force) {
+        const btn = force ? $('#btn-br10-sync-force') : $('#btn-br10-sync');
+        const originalText = btn.html();
+        btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Sincronizando...');
+        
+        $('#br10-sync-result').html('<div style="color:#1d8cf8;"><i class="fas fa-spinner fa-spin"></i> Iniciando sincronização com o servidor BR10...</div>');
+        $('#br10-sync-log').hide().text('');
+
+        $.ajax({
+            url: '/api/br10/sync',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ force: force }),
+            timeout: 130000,
+            success: function(data) {
+                btn.prop('disabled', false).html(originalText);
+                
+                if (data.success) {
+                    $('#br10-sync-result').html(`
+                        <div class="alert" style="background:rgba(0,242,195,0.15);color:#00f2c3;border:1px solid #00f2c3;padding:8px 12px;border-radius:6px;">
+                            <i class="fas fa-check-circle"></i> <strong>Sucesso!</strong> ${data.message}
+                            ${data.domains_count ? ' — <strong>' + data.domains_count.toLocaleString() + '</strong> domínios aplicados' : ''}
+                        </div>
+                    `);
+                    if (data.output) {
+                        $('#br10-sync-log').show().text(data.output);
+                    }
+                    // Recarregar stats após sync
+                    setTimeout(function() {
+                        loadStats();
+                        loadTopDomains();
+                        loadBR10Status();
+                    }, 1500);
+                } else {
+                    $('#br10-sync-result').html(`
+                        <div class="alert" style="background:rgba(253,93,147,0.15);color:#fd5d93;border:1px solid #fd5d93;padding:8px 12px;border-radius:6px;">
+                            <i class="fas fa-times-circle"></i> <strong>Erro!</strong> ${data.error || 'Falha na sincronização'}
+                        </div>
+                    `);
+                    if (data.output) {
+                        $('#br10-sync-log').show().text(data.output);
+                    }
+                }
+            },
+            error: function(xhr) {
+                btn.prop('disabled', false).html(originalText);
+                let errorMsg = 'Erro na requisição';
+                try {
+                    const resp = JSON.parse(xhr.responseText);
+                    errorMsg = resp.error || errorMsg;
+                } catch(e) {}
+                $('#br10-sync-result').html(`
+                    <div class="alert" style="background:rgba(253,93,147,0.15);color:#fd5d93;border:1px solid #fd5d93;padding:8px 12px;border-radius:6px;">
+                        <i class="fas fa-times-circle"></i> <strong>Erro!</strong> ${errorMsg}
+                    </div>
+                `);
+            }
+        });
+    }
+
     $(document).ready(function() {
         // Carregamento inicial
         loadStats();
         loadCacheByIpStats();
         loadTopDomains();
+        loadBR10Status();
         
         // Atualização automática a cada 30 segundos
         setInterval(loadStats, 30000);
         setInterval(loadCacheByIpStats, 30000);
+        setInterval(loadBR10Status, 60000);
     });
     
     // Carregar estatisticas gerais
@@ -173,17 +347,14 @@
                     return;
                 }
                 
-                // Atualizar indicadores
                 $('#total-domains').text(data.blocked_domains_count.toLocaleString());
                 $('#cache-hit-ratio').text(data.unbound.cache_hit_ratio);
                 $('#total-queries').text(parseInt(data.unbound.queries).toLocaleString());
                 
-                // Estatisticas DNS
                 $('#dns-uptime').text(data.unbound.uptime);
                 $('#dns-cache-hits').text(parseInt(data.unbound.cache_hits).toLocaleString());
                 $('#dns-cache-misses').text(parseInt(data.unbound.cache_misses).toLocaleString());
                 
-                // Grafico de tempos de resposta
                 renderResponseTimesChart(data.unbound.response_times);
             },
             error: function(xhr, status, error) {
@@ -191,6 +362,7 @@
             }
         });
     }
+
     // Carregar principais dominios
     function loadTopDomains() {
         $.ajax({
@@ -202,7 +374,6 @@
                     return;
                 }
                 
-                // Atualizar tabela
                 $('#domains-body').empty();
                 
                 if (data.domains.length === 0) {
@@ -216,7 +387,6 @@
                             <td>${domain}</td>
                         </tr>
                     `;
-                    
                     $('#domains-body').append(row);
                 });
             },
@@ -252,20 +422,16 @@
         
         const ctx = document.getElementById('response-times-chart').getContext('2d');
         
-        // Converter dados para formato do Chart.js
         const labels = [];
         const data = [];
         
-        // Ordenar tempos de resposta
         const sortedTimes = Object.entries(responseTimes)
             .sort((a, b) => {
-                // Extrair numeros das strings (exemplo: "0.001.to.002" -> 0.001)
                 const aTime = parseFloat(a[0].match(/[\d.]+/)[0]);
                 const bTime = parseFloat(b[0].match(/[\d.]+/)[0]);
                 return aTime - bTime;
             });
         
-        // Adicionar dados ordenados
         sortedTimes.forEach(([timeRange, count]) => {
             labels.push(timeRange);
             data.push(count);
@@ -293,9 +459,7 @@
                 plugins: {
                     legend: {
                         position: 'top',
-                        labels: {
-                            color: '#ffffff'
-                        }
+                        labels: { color: '#ffffff' }
                     },
                     title: {
                         display: true,
@@ -305,20 +469,12 @@
                 },
                 scales: {
                     x: {
-                        ticks: {
-                            color: '#b3b3b3'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
+                        ticks: { color: '#b3b3b3' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
                     },
                     y: {
-                        ticks: {
-                            color: '#b3b3b3'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        },
+                        ticks: { color: '#b3b3b3' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
                         beginAtZero: true
                     }
                 }

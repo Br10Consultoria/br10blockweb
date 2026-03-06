@@ -84,8 +84,19 @@ def get_domains():
             response = '\n'.join(domains)
             content_type = 'text/plain'
         elif format_type == 'rpz':
+            # Formato RPZ completo com cabeçalho de zona para Unbound
+            rpz_header = [
+                f'; BR10 Block Web - RPZ Zone File',
+                f'; Total domains: {len(domains)}',
+                f'; Generated: {datetime.now().isoformat()}',
+                f'$ORIGIN br10block.rpz.',
+                f'$TTL 60',
+                f'@ IN SOA localhost. root.localhost. ({int(datetime.now().timestamp())} 3600 900 604800 60)',
+                f'@ IN NS localhost.',
+                '',
+            ]
             rpz_lines = [f'{domain} CNAME .' for domain in domains]
-            response = '\n'.join(rpz_lines)
+            response = '\n'.join(rpz_header + rpz_lines)
             content_type = 'text/plain'
         else:  # json
             response_data = {
@@ -296,11 +307,15 @@ def get_status():
         recent_syncs = SyncHistory.get_by_client(client.id, limit=1)
         last_sync = recent_syncs[0].to_dict() if recent_syncs else None
         
+        domains_count = Domain.count(active_only=True)
         response = {
             'success': True,
             'client': client.to_dict(include_api_key=False),
             'last_sync': last_sync,
-            'current_domains_count': Domain.count(active_only=True),
+            'current_domains_count': domains_count,
+            'total_domains': domains_count,
+            'domains_count': domains_count,
+            'last_update': datetime.now().isoformat(),
             'server_time': datetime.now().isoformat()
         }
         

@@ -142,6 +142,14 @@ class UserManager:
             logger.info("Arquivo de usuários criado com usuário admin padrão")
     
     @staticmethod
+    def get_users():
+        """Retorna lista de usuarios."""
+        if not Config.USERS_FILE.exists():
+            UserManager.init_users()
+        with open(Config.USERS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f).get('users', [])
+
+
 # Implementacao alternativa para netifaces
 class FallbackNetifaces:
     def interfaces(self):
@@ -191,6 +199,11 @@ HISTORY_DIR = os.getenv("HISTORY_DIR", "/opt/br10dashboard/data/history")
 LOG_DIR = os.getenv("LOG_DIR", os.path.join(BASE_DIR, "logs"))
 UNBOUND_ZONE_FILE = os.getenv("UNBOUND_ZONE_FILE", "/var/lib/unbound/br10block-rpz.zone")
 USERS_FILE = os.getenv("USERS_FILE", os.path.join(BASE_DIR, "config/users.json"))
+
+# Configuracoes do servidor BR10 Block Web (servidor central)
+BR10_SERVER_URL = os.getenv("BR10_SERVER_URL", "")
+BR10_API_KEY = os.getenv("BR10_API_KEY", "")
+BR10_SYNC_SCRIPT = os.getenv("BR10_SYNC_SCRIPT", os.path.join(BASE_DIR, "scripts/br10block_client.sh"))
 
 # Configuracao do app Flask
 app = Flask(__name__)
@@ -3128,6 +3141,141 @@ def generate_report(results, test_type):
         f.write("=========================================================\n")
 
     return report_file
+
+
+# =============================================================================
+# ROTAS DE SINCRONIZACAO COM O SERVIDOR BR10
+# =============================================================================
+
+@app.route('/api/br10/status')
+@login_required
+def api_br10_status():
+    """Retorna o status da sincronizacao com o servidor BR10"""
+    try:
+        state_file = os.path.join(os.path.dirname(HISTORY_DIR), 'last_sync.json')
+        sync_state = {}
+        if os.path.exists(state_file):
+            with open(state_file, 'r') as f:
+                sync_state = json.load(f)
+
+        redis_state = {}
+        try:
+            if redis_client:
+                redis_data = redis_client.hgetall('br10block:sync:latest')
+                if redis_data:
+                    redis_state = redis_data
+        except Exception:
+            pass
+
+        server_configured = bool(BR10_SERVER_URL and BR10_API_KEY)
+        server_info = {}
+        if server_configured:
+            try:
+                import requests as req_lib
+                resp = req_lib.get(
+                    f"{BR10_SERVER_URL}/api/v1/client/status",
+                    headers={'X-API-Key': BR10_API_KEY},
+                    timeout=5
+                )
+                if resp.status_code == 200:
+                    server_info = resp.json()
+            except Exception as e:
+                server_info = {'error': str(e)}
+
+        return jsonify({
+            'server_configured': server_configured,
+            'server_url': BR10_SERVER_URL if server_configured else None,
+            'sync_state': sync_state,
+            'redis_state': redis_state,
+            'server_info': server_info
+        })
+    except Exception as e:
+        logger.error(f"Erro ao obter status BR10: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/br10/sync', methods=['POST'])
+@login_required
+def api_br10_sync():
+    """Dispara sincronizacao manual com o servidor BR10"""
+    try:
+        if not BR10_SERVER_URL or not BR10_API_KEY:
+            return jsonify({'error': 'Servidor BR10 nao configurado. Defina BR10_SERVER_URL e BR10_API_KEY no .env'}), 400
+
+        force = request.json.get('force', False) if request.json else False
+
+        if os.path.exists(BR10_SYNC_SCRIPT):
+            cmd = [BR10_SYNC_SCRIPT]
+            if force:
+                cmd.append('--force')
+            env = os.environ.copy()
+            env['BR10_SERVER_URL'] = BR10_SERVER_URL
+            env['BR10_API_KEY'] = BR10_API_KEY
+            env['BLOCKED_DOMAINS_PATH'] = BLOCKED_DOMAINS_PATH
+            env['UNBOUND_ZONE_FILE'] = UNBOUND_ZONE_FILE
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
+            if result.returncode == 0:
+                return jsonify({'success': True, 'message': 'Sincronizacao concluida', 'output': result.stdout[-2000:]})
+            else:
+                return jsonify({'success': False, 'error': 'Falha na sincronizacao', 'output': (result.stderr or result.stdout)[-2000:]}), 500
+        else:
+            import requests as req_lib
+            resp = req_lib.get(
+                f"{BR10_SERVER_URL}/api/v1/client/domains?format=rpz",
+                headers={'X-API-Key': BR10_API_KEY},
+                timeout=30
+            )
+            if resp.status_code != 200:
+                return jsonify({'error': f'Servidor retornou HTTP {resp.status_code}'}), 500
+            content = resp.text
+            os.makedirs(os.path.dirname(UNBOUND_ZONE_FILE), exist_ok=True)
+            with open(UNBOUND_ZONE_FILE, 'w') as f:
+                f.write(content)
+            domains = [line.split()[0].rstrip('.') for line in content.splitlines() if 'CNAME .' in line and line.split()]
+            os.makedirs(os.path.dirname(BLOCKED_DOMAINS_PATH), exist_ok=True)
+            with open(BLOCKED_DOMAINS_PATH, 'w') as f:
+                f.write('\n'.join(domains))
+            try:
+                subprocess.run(['unbound-control', 'reload'], timeout=10, check=True)
+            except Exception:
+                try:
+                    subprocess.run(['systemctl', 'reload', 'unbound'], timeout=10)
+                except Exception:
+                    pass
+            try:
+                req_lib.post(
+                    f"{BR10_SERVER_URL}/api/v1/client/sync/complete",
+                    headers={'X-API-Key': BR10_API_KEY, 'Content-Type': 'application/json'},
+                    json={'domains_applied': len(domains), 'status': 'success'},
+                    timeout=10
+                )
+            except Exception:
+                pass
+            return jsonify({'success': True, 'message': f'Sincronizacao concluida: {len(domains)} dominios aplicados', 'domains_count': len(domains)})
+    except Exception as e:
+        logger.error(f"Erro na sincronizacao BR10: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/br10/sync-history')
+@login_required
+def api_br10_sync_history():
+    """Retorna historico de sincronizacoes com o servidor BR10"""
+    try:
+        history = []
+        try:
+            if redis_client:
+                raw_history = redis_client.lrange('br10block:sync:history', 0, 49)
+                for item in raw_history:
+                    try:
+                        history.append(json.loads(item))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return jsonify({'history': history, 'count': len(history)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # Inicializacao da aplicacao

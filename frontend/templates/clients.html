@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block title %}Clientes DNS - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-0"><i class="fas fa-server text-primary"></i> Clientes DNS</h1>
+            <p class="text-muted mb-0">Gerencie os servidores Unbound que consomem a lista de bloqueio</p>
+        </div>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addClientModal">
+            <i class="fas fa-plus"></i> Novo Cliente
+        </button>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card border-0 bg-primary text-white shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="small opacity-75">Total de Clientes</div>
+                            <div class="fs-3 fw-bold">{{ clients|length }}</div>
+                        </div>
+                        <i class="fas fa-server fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 bg-success text-white shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="small opacity-75">Online</div>
+                            <div class="fs-3 fw-bold">{{ clients|selectattr('status', 'equalto', 'online')|list|length }}</div>
+                        </div>
+                        <i class="fas fa-check-circle fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 bg-secondary text-white shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="small opacity-75">Offline</div>
+                            <div class="fs-3 fw-bold">{{ clients|selectattr('status', 'equalto', 'offline')|list|length }}</div>
+                        </div>
+                        <i class="fas fa-times-circle fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 bg-info text-white shadow-sm">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="small opacity-75">Ativos</div>
+                            <div class="fs-3 fw-bold">{{ clients|selectattr('active')|list|length }}</div>
+                        </div>
+                        <i class="fas fa-toggle-on fa-2x opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Clients Table -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-white">
+            <h5 class="mb-0"><i class="fas fa-list text-primary"></i> Lista de Clientes</h5>
+        </div>
+        <div class="card-body p-0">
+            {% if clients %}
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Nome</th>
+                            <th>IP</th>
+                            <th>Status</th>
+                            <th>Última Sync</th>
+                            <th>Domínios Aplicados</th>
+                            <th>API Key</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for client in clients %}
+                        <tr>
+                            <td>
+                                <strong>{{ client.name }}</strong>
+                                {% if client.description %}
+                                <br><small class="text-muted">{{ client.description }}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <code>{{ client.ip_address or '-' }}</code>
+                            </td>
+                            <td>
+                                {% if client.status == 'online' %}
+                                    <span class="badge bg-success"><i class="fas fa-circle"></i> Online</span>
+                                {% elif client.status == 'syncing' %}
+                                    <span class="badge bg-warning text-dark"><i class="fas fa-sync fa-spin"></i> Sincronizando</span>
+                                {% elif client.status == 'error' %}
+                                    <span class="badge bg-danger"><i class="fas fa-exclamation-circle"></i> Erro</span>
+                                {% else %}
+                                    <span class="badge bg-secondary"><i class="fas fa-circle"></i> Offline</span>
+                                {% endif %}
+                                {% if not client.active %}
+                                    <span class="badge bg-dark ms-1">Inativo</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <small class="text-muted">
+                                    {{ client.last_sync.strftime('%d/%m/%Y %H:%M') if client.last_sync else 'Nunca' }}
+                                </small>
+                            </td>
+                            <td>
+                                <span class="badge bg-primary">{{ client.domains_count or 0 }}</span>
+                            </td>
+                            <td>
+                                <div class="input-group input-group-sm" style="max-width: 200px;">
+                                    <input type="password" class="form-control form-control-sm font-monospace"
+                                           value="{{ client.api_key }}" id="key-{{ client.id }}" readonly>
+                                    <button class="btn btn-outline-secondary btn-sm"
+                                            onclick="toggleKey('key-{{ client.id }}')" title="Mostrar/Ocultar">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm"
+                                            onclick="copyKey('{{ client.api_key }}')" title="Copiar">
+                                        <i class="fas fa-copy"></i>
+                                    </button>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{{ url_for('client_detail', client_id=client.id) }}"
+                                       class="btn btn-outline-primary" title="Detalhes">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    <button class="btn btn-outline-warning"
+                                            onclick="regenerateKey({{ client.id }}, '{{ client.name }}')"
+                                            title="Regenerar API Key">
+                                        <i class="fas fa-key"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger"
+                                            onclick="deleteClient({{ client.id }}, '{{ client.name }}')"
+                                            title="Remover">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center p-5">
+                <i class="fas fa-server fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">Nenhum cliente cadastrado</h5>
+                <p class="text-muted">Adicione um cliente para começar a distribuir a lista de bloqueio.</p>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addClientModal">
+                    <i class="fas fa-plus"></i> Adicionar Primeiro Cliente
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- API Usage Info -->
+    <div class="card shadow-sm mt-4">
+        <div class="card-header bg-white">
+            <h5 class="mb-0"><i class="fas fa-code text-info"></i> Como Usar a API</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <h6>Buscar lista de domínios (TXT)</h6>
+                    <pre class="bg-dark text-light p-3 rounded small">curl -H "X-API-Key: SUA_API_KEY" \
+  {{ request.host_url }}api/v1/client/domains?format=txt</pre>
+                </div>
+                <div class="col-md-6">
+                    <h6>Buscar lista de domínios (RPZ/Unbound)</h6>
+                    <pre class="bg-dark text-light p-3 rounded small">curl -H "X-API-Key: SUA_API_KEY" \
+  {{ request.host_url }}api/v1/client/domains?format=rpz</pre>
+                </div>
+                <div class="col-md-6">
+                    <h6>Verificar status</h6>
+                    <pre class="bg-dark text-light p-3 rounded small">curl -H "X-API-Key: SUA_API_KEY" \
+  {{ request.host_url }}api/v1/client/status</pre>
+                </div>
+                <div class="col-md-6">
+                    <h6>Confirmar sincronização</h6>
+                    <pre class="bg-dark text-light p-3 rounded small">curl -X POST \
+  -H "X-API-Key: SUA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"domains_applied": 1234, "status": "success"}' \
+  {{ request.host_url }}api/v1/client/sync/complete</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Client Modal -->
+<div class="modal fade" id="addClientModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-plus-circle text-primary"></i> Novo Cliente DNS</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Nome do Cliente <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="client-name" placeholder="ex: Servidor-SP-01">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Endereço IP</label>
+                    <input type="text" class="form-control" id="client-ip" placeholder="ex: 192.168.1.100">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Descrição</label>
+                    <textarea class="form-control" id="client-description" rows="2"
+                              placeholder="Descrição do servidor..."></textarea>
+                </div>
+                <div id="add-client-alert"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="addClient()">
+                    <i class="fas fa-plus"></i> Criar Cliente
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- New API Key Modal -->
+<div class="modal fade" id="newKeyModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="fas fa-key"></i> Nova API Key Gerada</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Atenção!</strong> Copie a nova API key agora. Ela não será exibida novamente.
+                </div>
+                <div class="input-group">
+                    <input type="text" class="form-control font-monospace" id="new-api-key" readonly>
+                    <button class="btn btn-outline-secondary" onclick="copyKey(document.getElementById('new-api-key').value)">
+                        <i class="fas fa-copy"></i> Copiar
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal" onclick="location.reload()">
+                    Fechar e Recarregar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleKey(inputId) {
+    const input = document.getElementById(inputId);
+    input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+function copyKey(key) {
+    navigator.clipboard.writeText(key).then(() => {
+        const toast = document.createElement('div');
+        toast.className = 'position-fixed bottom-0 end-0 p-3';
+        toast.style.zIndex = '9999';
+        toast.innerHTML = '<div class="toast show"><div class="toast-body bg-success text-white rounded"><i class="fas fa-check"></i> API Key copiada!</div></div>';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+    });
+}
+
+async function addClient() {
+    const name = document.getElementById('client-name').value.trim();
+    const ip = document.getElementById('client-ip').value.trim();
+    const description = document.getElementById('client-description').value.trim();
+    const alertEl = document.getElementById('add-client-alert');
+    
+    if (!name) {
+        alertEl.innerHTML = '<div class="alert alert-danger">Nome é obrigatório.</div>';
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/v1/admin/clients', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, ip_address: ip || null, description })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('addClientModal')).hide();
+            document.getElementById('new-api-key').value = data.client.api_key;
+            new bootstrap.Modal(document.getElementById('newKeyModal')).show();
+        } else {
+            alertEl.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        }
+    } catch (e) {
+        alertEl.innerHTML = '<div class="alert alert-danger">Erro ao criar cliente.</div>';
+    }
+}
+
+async function regenerateKey(clientId, clientName) {
+    if (!confirm(`Regenerar API key para "${clientName}"? O cliente precisará ser reconfigurado.`)) return;
+    
+    try {
+        const response = await fetch(`/api/v1/admin/clients/${clientId}/regenerate-key`, {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            document.getElementById('new-api-key').value = data.api_key;
+            new bootstrap.Modal(document.getElementById('newKeyModal')).show();
+        } else {
+            alert('Erro: ' + data.error);
+        }
+    } catch (e) {
+        alert('Erro ao regenerar API key.');
+    }
+}
+
+async function deleteClient(clientId, clientName) {
+    if (!confirm(`Remover o cliente "${clientName}"? Esta ação não pode ser desfeita.`)) return;
+    
+    try {
+        const response = await fetch(`/api/v1/admin/clients/${clientId}`, { method: 'DELETE' });
+        const data = await response.json();
+        
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Erro: ' + data.error);
+        }
+    } catch (e) {
+        alert('Erro ao remover cliente.');
+    }
+}
+</script>
+{% endblock %}

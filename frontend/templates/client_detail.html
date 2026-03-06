@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} - Clientes DNS - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="{{ url_for('clients_list') }}">Clientes DNS</a></li>
+                    <li class="breadcrumb-item active">{{ client.name }}</li>
+                </ol>
+            </nav>
+            <h1 class="h3 mb-0">
+                <i class="fas fa-server text-primary"></i> {{ client.name }}
+                {% if client.status == 'online' %}
+                    <span class="badge bg-success ms-2">Online</span>
+                {% elif client.status == 'error' %}
+                    <span class="badge bg-danger ms-2">Erro</span>
+                {% else %}
+                    <span class="badge bg-secondary ms-2">Offline</span>
+                {% endif %}
+            </h1>
+        </div>
+        <a href="{{ url_for('clients_list') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left"></i> Voltar
+        </a>
+    </div>
+
+    <div class="row g-4">
+        <!-- Client Info -->
+        <div class="col-md-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-info-circle text-info"></i> Informações</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tr>
+                            <th class="text-muted">Nome</th>
+                            <td>{{ client.name }}</td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">IP</th>
+                            <td><code>{{ client.ip_address or '-' }}</code></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Descrição</th>
+                            <td>{{ client.description or '-' }}</td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Status</th>
+                            <td>
+                                {% if client.status == 'online' %}
+                                    <span class="badge bg-success">Online</span>
+                                {% elif client.status == 'error' %}
+                                    <span class="badge bg-danger">Erro</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Offline</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Domínios Aplicados</th>
+                            <td><span class="badge bg-primary">{{ client.domains_count or 0 }}</span></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Última Sync</th>
+                            <td>
+                                <small>{{ client.last_sync.strftime('%d/%m/%Y %H:%M') if client.last_sync else 'Nunca' }}</small>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Criado em</th>
+                            <td>
+                                <small>{{ client.created_at.strftime('%d/%m/%Y') if client.created_at else '-' }}</small>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Report -->
+            {% if report %}
+            <div class="card shadow-sm mt-3">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-chart-bar text-success"></i> Relatório (30 dias)</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm">
+                        <tr>
+                            <th class="text-muted">Total Syncs</th>
+                            <td><span class="badge bg-primary">{{ report.total_syncs or 0 }}</span></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Sucesso</th>
+                            <td><span class="badge bg-success">{{ report.success_syncs or 0 }}</span></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Falhas</th>
+                            <td><span class="badge bg-danger">{{ report.failed_syncs or 0 }}</span></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">Taxa de Sucesso</th>
+                            <td>{{ report.success_rate or 0 }}%</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Sync History -->
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0"><i class="fas fa-history text-secondary"></i> Histórico de Sincronizações</h5>
+                </div>
+                <div class="card-body p-0">
+                    {% if sync_history %}
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Data</th>
+                                    <th>Status</th>
+                                    <th>Enviados</th>
+                                    <th>Aplicados</th>
+                                    <th>Duração</th>
+                                    <th>Mensagem</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for sync in sync_history %}
+                                <tr>
+                                    <td>
+                                        <small class="text-muted">
+                                            {{ sync.synced_at.strftime('%d/%m/%Y %H:%M') if sync.synced_at else '-' }}
+                                        </small>
+                                    </td>
+                                    <td>
+                                        {% if sync.status == 'success' %}
+                                            <span class="badge bg-success">Sucesso</span>
+                                        {% elif sync.status == 'failed' %}
+                                            <span class="badge bg-danger">Falha</span>
+                                        {% elif sync.status == 'partial' %}
+                                            <span class="badge bg-warning text-dark">Parcial</span>
+                                        {% elif sync.status == 'pending' %}
+                                            <span class="badge bg-secondary">Pendente</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ sync.status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ sync.domains_sent or 0 }}</td>
+                                    <td>{{ sync.domains_applied or 0 }}</td>
+                                    <td>
+                                        {% if sync.duration_seconds %}
+                                            {{ sync.duration_seconds }}s
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <small class="text-muted">{{ sync.message or '-' }}</small>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center p-4">
+                        <i class="fas fa-history fa-2x text-muted mb-2"></i>
+                        <p class="text-muted">Nenhuma sincronização registrada</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

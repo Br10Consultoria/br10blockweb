@@ -116,7 +116,47 @@ O projeto foi organizado de forma modular para facilitar a manutenção e o dese
 └── API_DOCS.md             # Documentação da API
 ```
 
-## 4. Como Executar (Ambiente de Desenvolvimento)
+## 4. Como Instalar (Produção / Bare Metal)
+
+A nova versão 3.0.0 introduz scripts de instalação automatizada tanto para o servidor central quanto para os clientes DNS.
+
+### 4.1. Instalação do Servidor Central (BR10 Block Web)
+
+O servidor central gerencia o painel, banco de dados e API. Recomenda-se Ubuntu 22.04 ou Debian 12.
+
+```bash
+# 1. Clone o repositório
+git clone https://github.com/Br10Consultoria/br10blockweb.git
+cd br10blockweb
+
+# 2. Execute o instalador como root
+sudo bash install_server.sh
+```
+
+O script irá instalar todas as dependências, configurar PostgreSQL, Redis, Nginx, e criar os serviços systemd. Ao final, exibirá as credenciais de acesso (também salvas em `/root/br10blockweb_credentials.txt`).
+
+### 4.2. Instalação do Cliente DNS (BR10 Dashboard + Unbound)
+
+O cliente deve ser instalado nos servidores DNS da sua rede.
+
+```bash
+# 1. Clone o repositório no servidor DNS
+git clone https://github.com/Br10Consultoria/br10blockweb.git
+cd br10blockweb/br10dashboard
+
+# 2. Execute o instalador como root
+sudo bash install_client.sh
+```
+
+Durante a instalação, o script solicitará:
+- **URL do Servidor Central**: (ex: `http://192.168.1.10:8084`)
+- **API Key**: (gerada no painel do servidor central em "Clientes")
+
+O script instalará o Unbound (configurado para RPZ), o Dashboard local (porta 8085) e um Cron job para sincronização automática a cada 5 minutos.
+
+---
+
+## 5. Como Executar (Ambiente de Desenvolvimento Docker)
 
 **Pré-requisitos**: Docker e Docker Compose instalados.
 
@@ -156,11 +196,11 @@ O projeto foi organizado de forma modular para facilitar a manutenção e o dese
     docker-compose down
     ```
 
-## 5. Documentação da API
+## 6. Documentação da API
 
 A documentação detalhada da API foi movida para um arquivo separado. Por favor, consulte **[API_DOCS.md](API_DOCS.md)**.
 
-## 6. Considerações de Segurança
+## 7. Considerações de Segurança
 
 - **Variáveis de Ambiente**: Nunca comite senhas ou chaves secretas no código. Use o arquivo `.env`.
 - **Senhas de Usuário**: As senhas são armazenadas com hash (SHA-256).

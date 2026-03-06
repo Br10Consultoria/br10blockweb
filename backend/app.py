@@ -19,7 +19,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from backend.config import Config
+from backend.config import Config, DATA_DIR
 from backend.database.db import db
 from backend.api.client_routes import client_api
 from backend.api.admin_routes import admin_api
@@ -63,7 +63,7 @@ def create_app(config=None):
     
     # Criar diretórios necessários
     Config.UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
-    Config.DATA_FOLDER.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     
     # Inicializar banco de dados
     try:
@@ -350,10 +350,15 @@ def settings():
             'uploads': len(PDFUpload.get_recent(limit=10000))
         }
         
+        user_data = session.get('user', {})
+        from backend.models.user import User
+        user_obj = User.get_by_username(user_data.get('username', '')) if user_data else None
+        
         return render_template(
             'settings.html',
             redis_stats=redis_stats,
-            db_stats=db_stats
+            db_stats=db_stats,
+            user=user_obj or user_data
         )
     
     except Exception as e:

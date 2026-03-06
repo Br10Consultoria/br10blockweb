@@ -11,6 +11,7 @@ Data: 2026-02-08
 """
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request, send_file
@@ -357,6 +358,70 @@ def get_upload_history():
     
     except Exception as e:
         logger.error(f"Erro ao buscar histórico de uploads: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# === Gerenciamento de Clientes (complemento) ===
+
+@admin_api.route('/clients/<int:client_id>', methods=['DELETE'])
+@require_admin_api
+def delete_client(client_id):
+    """Remove um cliente DNS"""
+    try:
+        client = DNSClient.get_by_id(client_id)
+        if not client:
+            return jsonify({'success': False, 'error': 'Cliente não encontrado'}), 404
+        
+        client.delete()
+        return jsonify({'success': True, 'message': 'Cliente removido com sucesso'}), 200
+    
+    except Exception as e:
+        logger.error(f"Erro ao remover cliente {client_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# === Usuários ===
+
+@admin_api.route('/users/change-password', methods=['POST'])
+@require_admin_api
+def change_password():
+    """Altera senha do usuário logado"""
+    try:
+        from backend.models.user import User
+        data = request.get_json() or {}
+        current_password = data.get('current_password', '')
+        new_password = data.get('new_password', '')
+        
+        if not current_password or not new_password:
+            return jsonify({'success': False, 'error': 'Campos obrigatórios não preenchidos'}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({'success': False, 'error': 'Nova senha deve ter pelo menos 6 caracteres'}), 400
+        
+        user = User.get_by_username(request.user.username)
+        if not user or not User.verify_password(current_password, user.password_hash):
+            return jsonify({'success': False, 'error': 'Senha atual incorreta'}), 400
+        
+        user.change_password(new_password)
+        return jsonify({'success': True, 'message': 'Senha alterada com sucesso'}), 200
+    
+    except Exception as e:
+        logger.error(f"Erro ao alterar senha: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# === Cache ===
+
+@admin_api.route('/cache/clear', methods=['POST'])
+@require_admin_api
+def clear_cache():
+    """Limpa o cache Redis"""
+    try:
+        from backend.services.cache_service import cache
+        cache.delete_pattern('*')
+        return jsonify({'success': True, 'message': 'Cache limpo com sucesso'}), 200
+    except Exception as e:
+        logger.error(f"Erro ao limpar cache: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
