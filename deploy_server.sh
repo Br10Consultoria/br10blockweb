@@ -135,7 +135,7 @@ init_database() {
     [[ -z "${app_container}" ]] && error "Container app não encontrado após 120s. Verifique: docker service ps ${STACK_NAME}_app"
 
     docker exec "${app_container}" \
-        python init_db.py --admin-user admin --admin-pass "${ADMIN_PASS}" \
+        python /app/init_db.py --admin-user admin --admin-pass "${ADMIN_PASS}" \
         && success "Banco de dados inicializado" \
         || warn "Banco pode já estar inicializado (normal em redeploys)"
 }

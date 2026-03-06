@@ -35,10 +35,11 @@ RUN pip install --upgrade pip && \
 # Copiar código da aplicação
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
+COPY init_db.py .
 COPY .env.example .env
 
 # Criar diretórios necessários
-RUN mkdir -p uploads data/backups logs
+RUN mkdir -p uploads data/backups data/uploads data/exports logs
 
 # Expor porta
 EXPOSE 8084
