@@ -116,85 +116,66 @@ O projeto foi organizado de forma modular para facilitar a manutenção e o dese
 └── API_DOCS.md             # Documentação da API
 ```
 
-## 4. Como Instalar (Produção / Bare Metal)
+## 4. Como Instalar (Recomendado: Docker Compose)
 
-A nova versão 3.0.0 introduz scripts de instalação automatizada tanto para o servidor central quanto para os clientes DNS.
+A versão mais recente migrou 100% para **Docker Compose**, garantindo uma instalação padronizada, isolada e sem conflitos de dependências com o sistema operacional.
+
+Requisitos: Ubuntu 22.04 / Debian 12 (o script instala o Docker automaticamente se necessário).
 
 ### 4.1. Instalação do Servidor Central (BR10 Block Web)
 
-O servidor central gerencia o painel, banco de dados e API. Recomenda-se Ubuntu 22.04 ou Debian 12.
+O servidor central gerencia o painel, banco de dados (PostgreSQL) e cache (Redis).
 
 ```bash
 # 1. Clone o repositório
 git clone https://github.com/Br10Consultoria/br10blockweb.git
 cd br10blockweb
 
-# 2. Execute o instalador como root
-sudo bash install_server.sh
+# 2. Execute o script de deploy como root
+sudo bash deploy_server.sh
 ```
 
-O script irá instalar todas as dependências, configurar PostgreSQL, Redis, Nginx, e criar os serviços systemd. Ao final, exibirá as credenciais de acesso (também salvas em `/root/br10blockweb_credentials.txt`).
+O script fará tudo automaticamente: instalará o Docker, criará senhas seguras, subirá os containers e inicializará o banco de dados.
+Ao final, exibirá as credenciais de acesso (também salvas em `/root/br10blockweb_credentials.txt`).
 
 ### 4.2. Instalação do Cliente DNS (BR10 Dashboard + Unbound)
 
-O cliente deve ser instalado nos servidores DNS da sua rede.
+O cliente deve ser instalado nos servidores DNS da sua rede. Ele sobe o Unbound DNS, o Dashboard local e um sincronizador automático.
 
 ```bash
 # 1. Clone o repositório no servidor DNS
 git clone https://github.com/Br10Consultoria/br10blockweb.git
 cd br10blockweb/br10dashboard
 
-# 2. Execute o instalador como root
-sudo bash install_client.sh
+# 2. Execute o script de deploy como root
+sudo bash deploy_client.sh
 ```
 
 Durante a instalação, o script solicitará:
 - **URL do Servidor Central**: (ex: `http://192.168.1.10:8084`)
 - **API Key**: (gerada no painel do servidor central em "Clientes")
 
-O script instalará o Unbound (configurado para RPZ), o Dashboard local (porta 8085) e um Cron job para sincronização automática a cada 5 minutos.
+> **Nota:** A porta 53 do servidor cliente deve estar livre. O script tentará desativar o `systemd-resolved` automaticamente se ele estiver ocupando a porta.
 
 ---
 
-## 5. Como Executar (Ambiente de Desenvolvimento Docker)
+## 5. Gerenciamento dos Containers
 
-**Pré-requisitos**: Docker e Docker Compose instalados.
+**Servidor Central (`/opt/br10blockweb` ou onde foi clonado):**
+```bash
+docker compose ps                  # Ver status
+docker compose logs -f app         # Ver logs da aplicação
+docker compose restart app         # Reiniciar aplicação
+docker compose down                # Parar tudo
+```
 
-1.  **Clonar o Repositório**
-    ```bash
-    git clone https://github.com/Br10Consultoria/br10blockweb.git
-    cd br10blockweb
-    ```
-
-2.  **Configurar Variáveis de Ambiente**
-    Copie o arquivo de exemplo e edite-o se necessário. As senhas e a secret key são geradas aleatoriamente por padrão no `docker-compose.yml`.
-    ```bash
-    cp .env.example .env
-    ```
-
-3.  **Subir os Containers**
-    Use o Docker Compose para construir e iniciar todos os serviços.
-    ```bash
-    docker-compose up --build -d
-    ```
-    O `-d` executa os containers em background.
-
-4.  **Acessar a Aplicação**
-    A aplicação estará disponível em [http://localhost:5000](http://localhost:5000).
-
-5.  **Primeiro Acesso**
-    -   O sistema não cria um usuário padrão. Você precisará criar um.
-    -   Execute o seguinte comando para criar um usuário administrador:
-        ```bash
-        docker-compose exec web python3 -c "from backend.models.user import User; User.create(\"admin\", \"SENHA_FORTE_AQUI\", role=\"admin\")"
-        ```
-    -   **Substitua `SENHA_FORTE_AQUI` por uma senha segura.**
-    -   Agora você pode fazer login com `admin` e a senha que você definiu.
-
-6.  **Parar a Aplicação**
-    ```bash
-    docker-compose down
-    ```
+**Cliente DNS (`br10dashboard/`):**
+```bash
+docker compose ps                  # Ver status
+docker compose logs -f sync        # Ver logs de sincronização com o servidor central
+docker compose logs -f unbound     # Ver logs do servidor DNS
+docker compose exec sync /usr/local/bin/br10block_client.sh --force  # Forçar sincronização manual
+```
 
 ## 6. Documentação da API
 
