@@ -45,9 +45,13 @@ class User:
         """Gera hash SHA-256 da senha"""
         return hashlib.sha256(password.encode()).hexdigest()
     
+    def verify_password(self, password: str) -> bool:
+        """Verifica se a senha corresponde ao hash do usuário (método de instância)"""
+        return User.hash_password(password) == self.password_hash
+
     @staticmethod
-    def verify_password(password: str, password_hash: str) -> bool:
-        """Verifica se a senha corresponde ao hash"""
+    def check_password(password: str, password_hash: str) -> bool:
+        """Verifica senha contra hash arbitrário (uso interno/legado)"""
         return User.hash_password(password) == password_hash
     
     @classmethod
@@ -120,7 +124,7 @@ class User:
         """Autentica usuário"""
         user = cls.get_by_username(username)
         
-        if user and user.active and cls.verify_password(password, user.password_hash):
+        if user and user.active and user.verify_password(password):
             return user
         
         return None

@@ -60,23 +60,20 @@ def run_migrations() -> None:
         logger.info(f"Aplicando migração: {filename}")
         
         try:
-            # Ler e executar SQL
             with open(migration_file, 'r', encoding='utf-8') as f:
                 sql = f.read()
-            
-            # Executar migração
-            with db.get_cursor() as cursor:
+
+            # Executar SQL + registro numa única transação com commit explícito
+            with db.get_cursor(commit=True) as cursor:
                 cursor.execute(sql)
-                
-                # Registrar migração aplicada
                 cursor.execute(
                     "INSERT INTO schema_migrations (filename) VALUES (%s)",
                     (filename,)
                 )
-            
+
             logger.info(f"Migração aplicada com sucesso: {filename}")
             pending_count += 1
-            
+
         except Exception as e:
             logger.error(f"Erro ao aplicar migração {filename}: {e}")
             raise

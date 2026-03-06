@@ -60,40 +60,57 @@ class Database:
     
     @contextmanager
     def get_connection(self):
-        """Context manager para obter conexão do pool"""
+        """Context manager para obter conexão do pool (sem auto-commit)."""
         conn = None
         try:
             conn = self._pool.getconn()
+            conn.autocommit = False
             yield conn
-            conn.commit()
         except Exception as e:
             if conn:
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
             logger.error(f"Erro na transação do banco: {e}")
             raise
         finally:
             if conn:
                 self._pool.putconn(conn)
-    
+
     @contextmanager
     def get_cursor(self, commit: bool = True):
-        """Context manager para obter cursor"""
-        with self.get_connection() as conn:
+        """Context manager para obter cursor com commit explícito."""
+        conn = None
+        cursor = None
+        try:
+            conn = self._pool.getconn()
+            conn.autocommit = False
             cursor = conn.cursor()
-            try:
-                yield cursor
-                if commit:
-                    conn.commit()
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"Erro no cursor: {e}")
-                raise
-            finally:
-                cursor.close()
+            yield cursor
+            if commit:
+                conn.commit()
+        except Exception as e:
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            logger.error(f"Erro no cursor: {e}")
+            raise
+        finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            if conn:
+                self._pool.putconn(conn)
     
     def execute_query(self, query: str, params: tuple = None, fetch: bool = True):
-        """Executa uma query e retorna resultados"""
-        with self.get_cursor() as cursor:
+        """Executa uma query e retorna resultados."""
+        # fetch=True = SELECT (sem commit), fetch=False = INSERT/UPDATE/DELETE (com commit)
+        with self.get_cursor(commit=not fetch) as cursor:
             cursor.execute(query, params)
             if fetch:
                 return cursor.fetchall()

@@ -399,7 +399,7 @@ def change_password():
             return jsonify({'success': False, 'error': 'Nova senha deve ter pelo menos 6 caracteres'}), 400
         
         user = User.get_by_username(request.user.username)
-        if not user or not User.verify_password(current_password, user.password_hash):
+        if not user or not user.verify_password(current_password):
             return jsonify({'success': False, 'error': 'Senha atual incorreta'}), 400
         
         user.change_password(new_password)
