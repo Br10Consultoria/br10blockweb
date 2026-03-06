@@ -134,9 +134,12 @@ def split_sql_statements(sql: str) -> List[str]:
 
 
 def get_migration_files() -> List[Path]:
-    """Retorna lista ordenada de arquivos de migração"""
+    """Retorna lista ordenada de arquivos de migração (excluindo rollbacks)"""
     migrations_dir = Path(__file__).parent
-    return sorted(migrations_dir.glob("*.sql"))
+    return sorted(
+        f for f in migrations_dir.glob("*.sql")
+        if '_rollback' not in f.name
+    )
 
 
 def run_migrations() -> None:

@@ -109,7 +109,11 @@ def main():
         if not migrations_dir.exists():
             migrations_dir = Path(__file__).parent / 'backend' / 'database' / 'migrations'
 
-        sql_files = sorted(migrations_dir.glob('*.sql'))
+        # Excluir arquivos de rollback — apenas migrations forward
+        sql_files = sorted(
+            f for f in migrations_dir.glob('*.sql')
+            if '_rollback' not in f.name
+        )
         print(f"📦 {len(sql_files)} arquivo(s) de migration encontrado(s)")
 
         for sql_file in sql_files:
