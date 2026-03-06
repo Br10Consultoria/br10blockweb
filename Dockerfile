@@ -36,6 +36,7 @@ RUN pip install --upgrade pip && \
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
 COPY init_db.py .
+COPY init_db_direct.py .
 COPY .env.example .env
 
 # Criar diretórios necessários
