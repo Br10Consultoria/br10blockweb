@@ -103,6 +103,8 @@ install_dependencies() {
     apt-get update -qq
     apt-get install -y -qq \
         python3 python3-pip python3-venv \
+        python3.11 python3.11-venv python3.11-dev 2>/dev/null || true
+    apt-get install -y -qq \
         unbound \
         redis-server \
         nginx \
@@ -113,6 +115,19 @@ install_dependencies() {
         tcpdump \
         net-tools
     success "Dependências instaladas"
+
+    # Determinar o interpretador Python a usar (preferência: 3.11 ou 3.12, evitar 3.13 por compatibilidade)
+    if command -v python3.11 &>/dev/null; then
+        PYTHON_BIN="python3.11"
+    elif command -v python3.12 &>/dev/null; then
+        PYTHON_BIN="python3.12"
+    elif command -v python3.10 &>/dev/null; then
+        PYTHON_BIN="python3.10"
+    else
+        PYTHON_BIN="python3"
+    fi
+    info "Python selecionado: ${PYTHON_BIN} ($(${PYTHON_BIN} --version 2>&1))"
+    export PYTHON_BIN
 }
 
 setup_user() {
@@ -254,11 +269,13 @@ install_application() {
     mkdir -p "${INSTALL_DIR}/reports"
     mkdir -p /var/lib/br10api
 
-    # Criar ambiente virtual Python
-    python3 -m venv "${INSTALL_DIR}/venv"
-    "${INSTALL_DIR}/venv/bin/pip" install --upgrade pip -q
-    "${INSTALL_DIR}/venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt" -q
-    "${INSTALL_DIR}/venv/bin/pip" install gunicorn requests -q
+    # Criar ambiente virtual Python (usando versão compatível)
+    PYTHON_BIN="${PYTHON_BIN:-python3}"
+    info "Criando venv com ${PYTHON_BIN}..."
+    "${PYTHON_BIN}" -m venv "${INSTALL_DIR}/venv"
+    "${INSTALL_DIR}/venv/bin/pip" install --upgrade pip setuptools wheel -q
+    "${INSTALL_DIR}/venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt" --no-cache-dir -q
+    "${INSTALL_DIR}/venv/bin/pip" install gunicorn requests --no-cache-dir -q
 
     # Tornar scripts executáveis
     chmod +x "${INSTALL_DIR}/scripts/"*.sh 2>/dev/null || true
