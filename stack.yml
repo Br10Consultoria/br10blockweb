@@ -1,0 +1,150 @@
+version: '3.9'
+
+# =============================================================================
+# BR10 Block Web - Docker Stack (Swarm)
+# =============================================================================
+# Deploy:
+#   docker stack deploy -c stack.yml br10blockweb
+#
+# Remover:
+#   docker stack rm br10blockweb
+#
+# Logs:
+#   docker service logs -f br10blockweb_app
+#
+# Inicializar banco (primeira vez):
+#   docker exec -it $(docker ps -q -f name=br10blockweb_app) \
+#     python init_db.py --admin-user admin --admin-pass SUASENHA
+#
+# Acesso:
+#   https://br10blockweb.br10consultoria.com.br  (via Traefik)
+# =============================================================================
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: br10blockweb
+      POSTGRES_USER: br10user
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - br10-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U br10user -d br10blockweb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+      placement:
+        constraints:
+          - node.role == manager
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - br10-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+      placement:
+        constraints:
+          - node.role == manager
+
+  # ── Aplicação Flask ──────────────────────────────────────────────────────────
+  app:
+    image: br10blockweb:latest
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: "${SECRET_KEY}"
+      DEBUG: "False"
+      HOST: "0.0.0.0"
+      PORT: "8084"
+      # Banco de dados
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: br10blockweb
+      DB_USER: br10user
+      DB_PASSWORD: "${DB_PASSWORD}"
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      # Cache TTL (segundos)
+      CACHE_TTL_DOMAINS: "300"
+      CACHE_TTL_STATS: "60"
+      CACHE_TTL_CLIENTS: "120"
+      # Sessão
+      SESSION_LIFETIME_HOURS: "24"
+      # Upload (16MB)
+      MAX_CONTENT_LENGTH: "16777216"
+      # Logging
+      LOG_LEVEL: INFO
+    volumes:
+      - uploads-data:/app/data/uploads
+      - exports-data:/app/data/exports
+      - logs-data:/app/logs
+    networks:
+      - br10-internal   # acessa postgres e redis
+      - network_public  # exposto pelo Traefik
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        # Habilitar Traefik
+        - "traefik.enable=true"
+        # Rede que o Traefik usa para alcançar este serviço
+        - "traefik.docker.network=network_public"
+        # Porta interna do Flask
+        - "traefik.http.services.br10blockweb.loadbalancer.server.port=8084"
+        # Roteamento HTTP → redireciona para HTTPS
+        - "traefik.http.routers.br10blockweb-http.rule=Host(`br10blockweb.br10consultoria.com.br`)"
+        - "traefik.http.routers.br10blockweb-http.entrypoints=web"
+        - "traefik.http.routers.br10blockweb-http.middlewares=redirect-to-https@docker"
+        # Roteamento HTTPS com SSL automático
+        - "traefik.http.routers.br10blockweb.rule=Host(`br10blockweb.br10consultoria.com.br`)"
+        - "traefik.http.routers.br10blockweb.entrypoints=websecure"
+        - "traefik.http.routers.br10blockweb.tls=true"
+        - "traefik.http.routers.br10blockweb.tls.certresolver=letsencrypt"
+
+networks:
+  # Rede interna privada (postgres, redis, app)
+  br10-internal:
+    driver: overlay
+    attachable: true
+
+  # Rede pública do Traefik (já existente no Swarm)
+  network_public:
+    external: true
+
+volumes:
+  postgres-data:
+  redis-data:
+  uploads-data:
+  exports-data:
+  logs-data:
