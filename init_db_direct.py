@@ -12,9 +12,10 @@ import sys
 from pathlib import Path
 from typing import List
 
+import hashlib
+
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from werkzeug.security import generate_password_hash
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
@@ -149,7 +150,8 @@ def main():
 
         # 5. Criar usuário admin
         print(f"👤 Configurando usuário '{args.admin_user}'...")
-        pw_hash = generate_password_hash(args.admin_pass)
+        # Usar SHA-256 igual ao backend/models/user.py
+        pw_hash = hashlib.sha256(args.admin_pass.encode()).hexdigest()
 
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM users WHERE username = %s", (args.admin_user,))
