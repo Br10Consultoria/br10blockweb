@@ -108,12 +108,31 @@ class Database:
                 self._pool.putconn(conn)
     
     def execute_query(self, query: str, params: tuple = None, fetch: bool = True):
-        """Executa uma query e retorna resultados."""
-        # fetch=True = SELECT (sem commit), fetch=False = INSERT/UPDATE/DELETE (com commit)
-        with self.get_cursor(commit=not fetch) as cursor:
+        """
+        Executa uma query e retorna resultados.
+
+        Regras de commit:
+        - SELECT puro: sem commit (fetch=True, sem RETURNING)
+        - INSERT/UPDATE/DELETE sem RETURNING: commit, retorna rowcount
+        - INSERT/UPDATE com RETURNING: commit + fetchall para retornar os dados
+        - fetch=False explícito: sempre commit, retorna rowcount
+        """
+        query_upper = query.strip().upper()
+        is_select = query_upper.startswith('SELECT')
+        has_returning = 'RETURNING' in query_upper
+
+        # Precisa de commit se: não é SELECT puro, OU é INSERT/UPDATE com RETURNING
+        needs_commit = not is_select or has_returning
+
+        with self.get_cursor(commit=needs_commit) as cursor:
             cursor.execute(query, params)
-            if fetch:
-                return cursor.fetchall()
+
+            # Retornar dados se: é SELECT, OU tem RETURNING, OU fetch=True explícito
+            if fetch or has_returning:
+                try:
+                    return cursor.fetchall()
+                except Exception:
+                    return []
             return cursor.rowcount
     
     def execute_many(self, query: str, params_list: list) -> int:
