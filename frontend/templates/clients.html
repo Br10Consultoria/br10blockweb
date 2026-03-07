@@ -288,20 +288,51 @@ function copyKey(key) {
         toast.innerHTML = '<div class="toast show"><div class="toast-body bg-success text-white rounded"><i class="fas fa-check"></i> API Key copiada!</div></div>';
         document.body.appendChild(toast);
         setTimeout(() => toast.remove(), 2000);
+    }).catch(() => {
+        // Fallback para navegadores sem clipboard API
+        const el = document.createElement('textarea');
+        el.value = key;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
     });
 }
+
+// Limpar formulário ao abrir o modal de novo cliente
+document.getElementById('addClientModal').addEventListener('show.bs.modal', function () {
+    document.getElementById('client-name').value = '';
+    document.getElementById('client-ip').value = '';
+    document.getElementById('client-description').value = '';
+    document.getElementById('add-client-alert').innerHTML = '';
+});
+
+// Recarregar a página quando o modal de API Key for fechado após cadastro
+let reloadOnKeyModalClose = false;
+document.getElementById('newKeyModal').addEventListener('hidden.bs.modal', function () {
+    if (reloadOnKeyModalClose) {
+        reloadOnKeyModalClose = false;
+        location.reload();
+    }
+});
 
 async function addClient() {
     const name = document.getElementById('client-name').value.trim();
     const ip = document.getElementById('client-ip').value.trim();
     const description = document.getElementById('client-description').value.trim();
     const alertEl = document.getElementById('add-client-alert');
-    
+    const btn = document.querySelector('#addClientModal .btn-primary');
+
     if (!name) {
-        alertEl.innerHTML = '<div class="alert alert-danger">Nome é obrigatório.</div>';
+        alertEl.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> Nome é obrigatório.</div>';
         return;
     }
-    
+
+    // Desabilitar botão durante a requisição
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Criando...';
+    alertEl.innerHTML = '';
+
     try {
         const response = await fetch('/api/v1/admin/clients', {
             method: 'POST',
@@ -309,53 +340,65 @@ async function addClient() {
             body: JSON.stringify({ name, ip_address: ip || null, description })
         });
         const data = await response.json();
-        
+
         if (data.success) {
-            bootstrap.Modal.getInstance(document.getElementById('addClientModal')).hide();
-            document.getElementById('new-api-key').value = data.client.api_key;
-            new bootstrap.Modal(document.getElementById('newKeyModal')).show();
+            // Fechar modal de cadastro
+            const addModal = bootstrap.Modal.getInstance(document.getElementById('addClientModal'));
+            addModal.hide();
+
+            // Aguardar o modal fechar completamente antes de abrir o próximo
+            document.getElementById('addClientModal').addEventListener('hidden.bs.modal', function openKeyModal() {
+                document.getElementById('addClientModal').removeEventListener('hidden.bs.modal', openKeyModal);
+                document.getElementById('new-api-key').value = data.client.api_key;
+                reloadOnKeyModalClose = true; // Sinaliza para recarregar ao fechar
+                new bootstrap.Modal(document.getElementById('newKeyModal')).show();
+            });
         } else {
-            alertEl.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            alertEl.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> ${data.error || 'Erro ao criar cliente.'}</div>`;
         }
     } catch (e) {
-        alertEl.innerHTML = '<div class="alert alert-danger">Erro ao criar cliente.</div>';
+        alertEl.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> Erro de conexão. Tente novamente.</div>';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-plus"></i> Criar Cliente';
     }
 }
 
 async function regenerateKey(clientId, clientName) {
-    if (!confirm(`Regenerar API key para "${clientName}"? O cliente precisará ser reconfigurado.`)) return;
-    
+    if (!confirm(`Regenerar API key para "${clientName}"?\nO cliente precisará ser reconfigurado com a nova chave.`)) return;
+
     try {
         const response = await fetch(`/api/v1/admin/clients/${clientId}/regenerate-key`, {
             method: 'POST'
         });
         const data = await response.json();
-        
+
         if (data.success) {
             document.getElementById('new-api-key').value = data.api_key;
+            reloadOnKeyModalClose = false; // Não recarregar ao fechar (lista já está atualizada)
             new bootstrap.Modal(document.getElementById('newKeyModal')).show();
         } else {
-            alert('Erro: ' + data.error);
+            alert('Erro: ' + (data.error || 'Falha ao regenerar API key.'));
         }
     } catch (e) {
-        alert('Erro ao regenerar API key.');
+        alert('Erro de conexão ao regenerar API key.');
     }
 }
 
 async function deleteClient(clientId, clientName) {
-    if (!confirm(`Remover o cliente "${clientName}"? Esta ação não pode ser desfeita.`)) return;
-    
+    if (!confirm(`Remover o cliente "${clientName}"?\nEsta ação não pode ser desfeita.`)) return;
+
     try {
         const response = await fetch(`/api/v1/admin/clients/${clientId}`, { method: 'DELETE' });
         const data = await response.json();
-        
+
         if (data.success) {
             location.reload();
         } else {
-            alert('Erro: ' + data.error);
+            alert('Erro: ' + (data.error || 'Falha ao remover cliente.'));
         }
     } catch (e) {
-        alert('Erro ao remover cliente.');
+        alert('Erro de conexão ao remover cliente.');
     }
 }
 </script>
