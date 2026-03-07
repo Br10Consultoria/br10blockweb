@@ -175,13 +175,13 @@ def validate_file_upload(
     if file_ext not in allowed_extensions:
         return False, f"Extensão não permitida. Permitidas: {', '.join(allowed_extensions)}"
     
-    # Tamanho
-    if file_size > Config.MAX_CONTENT_LENGTH:
-        max_mb = Config.MAX_CONTENT_LENGTH / (1024 * 1024)
-        return False, f"Arquivo muito grande (máximo {max_mb}MB)"
-    
-    if file_size == 0:
-        return False, "Arquivo vazio"
+    # Tamanho (-1 = ignorar verificação, será feita após salvar)
+    if file_size >= 0:
+        if file_size > Config.MAX_CONTENT_LENGTH:
+            max_mb = Config.MAX_CONTENT_LENGTH / (1024 * 1024)
+            return False, f"Arquivo muito grande (máximo {max_mb}MB)"
+        if file_size == 0:
+            return False, "Arquivo vazio"
     
     return True, None
 

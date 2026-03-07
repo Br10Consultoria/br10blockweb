@@ -168,8 +168,8 @@ def upload_pdf():
         if file.filename == '':
             return jsonify({'success': False, 'error': 'Nome de arquivo vazio'}), 400
         
-        # Validar arquivo
-        valid, error = validate_file_upload(file.filename, 0)  # Tamanho será validado pelo Flask
+        # Validar extensão (sem verificar tamanho ainda — arquivo não foi lido)
+        valid, error = validate_file_upload(file.filename, -1)  # -1 = ignorar checagem de tamanho
         if not valid:
             return jsonify({'success': False, 'error': error}), 400
         
@@ -181,6 +181,12 @@ def upload_pdf():
         
         file_path = Config.UPLOAD_FOLDER / filename
         file.save(str(file_path))
+        
+        # Verificar tamanho real após salvar
+        real_size = file_path.stat().st_size
+        if real_size == 0:
+            file_path.unlink(missing_ok=True)
+            return jsonify({'success': False, 'error': 'Arquivo enviado está vazio'}), 400
         
         # Processar PDF
         result = DomainManager.process_pdf_upload(
