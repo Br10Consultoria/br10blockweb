@@ -212,6 +212,7 @@ def list_clients():
         active_only = request.args.get('active_only', 'true').lower() == 'true'
         
         clients = DNSClient.get_all(active_only=active_only)
+        logger.info(f"Listando clientes: active_only={active_only}, total={len(clients)}")
         
         return jsonify({
             'success': True,
@@ -220,7 +221,7 @@ def list_clients():
         }), 200
     
     except Exception as e:
-        logger.error(f"Erro ao listar clientes: {e}")
+        logger.error(f"Erro ao listar clientes: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -230,6 +231,9 @@ def create_client():
     """Cria novo cliente DNS"""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Dados não fornecidos (JSON inválido)'}), 400
+
         name = data.get('name', '').strip()
         description = data.get('description', '') or ''
         ip_address = data.get('ip_address', '') or ''
@@ -240,21 +244,32 @@ def create_client():
         
         # Validar formato do IP se fornecido
         if ip_address:
-            import ipaddress
+            import ipaddress as ipaddress_mod
             try:
-                ipaddress.ip_address(ip_address)
+                ipaddress_mod.ip_address(ip_address)
             except ValueError:
                 # Tentar como rede (ex: 192.168.1.0/24)
                 try:
-                    ipaddress.ip_network(ip_address, strict=False)
+                    ipaddress_mod.ip_network(ip_address, strict=False)
                 except ValueError:
                     return jsonify({'success': False, 'error': f'Endereço IP inválido: {ip_address}'}), 400
+        
+        logger.info(f"Criando cliente: name={name}, ip={ip_address}, user={request.user.username}")
         
         client = DNSClient.create(
             name=name,
             description=description,
             ip_address=ip_address
         )
+        
+        logger.info(f"Cliente criado com sucesso: id={client.id}, name={client.name}")
+        
+        # Verificar imediatamente se o cliente foi persistido
+        verify = DNSClient.get_by_id(client.id)
+        if not verify:
+            logger.error(f"ALERTA: Cliente {client.id} criado mas não encontrado no SELECT subsequente!")
+        else:
+            logger.info(f"Verificação OK: Cliente {verify.id} encontrado no banco após criação")
         
         return jsonify({
             'success': True,
@@ -263,7 +278,7 @@ def create_client():
         }), 201
     
     except Exception as e:
-        logger.error(f"Erro ao criar cliente: {e}")
+        logger.error(f"Erro ao criar cliente: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -426,6 +441,32 @@ def change_password():
     
     except Exception as e:
         logger.error(f"Erro ao alterar senha: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# === Diagnóstico ===
+
+@admin_api.route('/debug/clients', methods=['GET'])
+@require_admin_api
+def debug_clients():
+    """Endpoint de diagnóstico para verificar clientes diretamente no banco"""
+    try:
+        from backend.database.db import db
+        
+        # Query direta ao banco
+        raw_result = db.execute_query("SELECT id, name, ip_address, status, active, created_at FROM dns_clients ORDER BY id")
+        count_result = db.execute_query("SELECT COUNT(*) as total FROM dns_clients")
+        
+        return jsonify({
+            'success': True,
+            'raw_count': count_result[0]['total'] if count_result else 0,
+            'raw_clients': [dict(row) for row in raw_result] if raw_result else [],
+            'model_count_all': DNSClient.count(active_only=False),
+            'model_count_active': DNSClient.count(active_only=True),
+            'model_get_all': [c.to_dict() for c in DNSClient.get_all(active_only=False)]
+        }), 200
+    except Exception as e:
+        logger.error(f"Erro no debug de clientes: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

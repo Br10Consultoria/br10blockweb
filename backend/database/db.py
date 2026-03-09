@@ -90,12 +90,14 @@ class Database:
             yield cursor
             if commit:
                 conn.commit()
+                logger.debug("Transação commitada com sucesso")
         except Exception as e:
             if conn:
                 try:
                     conn.rollback()
-                except Exception:
-                    pass
+                    logger.warning(f"Rollback executado devido a erro: {e}")
+                except Exception as rb_err:
+                    logger.error(f"Erro ao fazer rollback: {rb_err}")
             logger.error(f"Erro no cursor: {e}")
             raise
         finally:
@@ -130,8 +132,15 @@ class Database:
             # Retornar dados se: é SELECT, OU tem RETURNING, OU fetch=True explícito
             if fetch or has_returning:
                 try:
-                    return cursor.fetchall()
-                except Exception:
+                    rows = cursor.fetchall()
+                    if has_returning and not rows:
+                        logger.warning(f"Query com RETURNING não retornou dados: {query[:80]}")
+                    return rows
+                except psycopg2.ProgrammingError:
+                    # fetchall() em query sem resultados (ex: INSERT sem RETURNING)
+                    return []
+                except Exception as e:
+                    logger.error(f"Erro no fetchall: {e} | Query: {query[:80]}")
                     return []
             return cursor.rowcount
     
@@ -147,6 +156,19 @@ class Database:
             self._pool.closeall()
             logger.info("Pool de conexões fechado")
     
+    def initialize(self) -> None:
+        """Inicializa o banco de dados: testa conexão e executa migrações pendentes."""
+        logger.info("Inicializando banco de dados...")
+
+        if not self.test_connection():
+            raise Exception("Não foi possível conectar ao banco de dados")
+
+        logger.info("Conexão com banco de dados estabelecida")
+
+        # Executar migrações pendentes
+        from backend.database.migrations import run_migrations
+        run_migrations()
+
     def test_connection(self) -> bool:
         """Testa a conexão com o banco"""
         try:

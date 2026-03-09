@@ -410,13 +410,22 @@ async function addClient() {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Criando...';
     alertEl.innerHTML = '';
 
-    try {
+     try {
+        console.log('Enviando requisição para criar cliente:', { name, ip_address: ip || null, description });
         const response = await fetch('/api/v1/admin/clients', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, ip_address: ip || null, description })
         });
+        console.log('Response status:', response.status);
         const data = await response.json();
+        console.log('Response data:', data);
+
+        if (!response.ok) {
+            // Tratar erros HTTP (401, 403, 500, etc.)
+            alertEl.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> Erro ${response.status}: ${data.error || 'Erro no servidor.'}</div>`;
+            return;
+        }
 
         if (data.success) {
             // Adicionar o novo cliente à tabela imediatamente
@@ -444,6 +453,7 @@ async function addClient() {
             alertEl.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> ${data.error || 'Erro ao criar cliente.'}</div>`;
         }
     } catch (e) {
+        console.error('Erro ao criar cliente:', e);
         alertEl.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> Erro de conexão. Tente novamente.</div>';
     } finally {
         btn.disabled = false;

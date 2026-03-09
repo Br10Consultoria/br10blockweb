@@ -189,15 +189,22 @@ def dashboard():
     """Dashboard principal"""
     try:
         # Estatísticas gerais
+        clients_total = DNSClient.count(active_only=False)
+        clients_active = DNSClient.count(active_only=True)
+        all_clients = DNSClient.get_all()
+        clients_online = len([c for c in all_clients if c.status == 'online'])
+        
+        logger.info(f"Dashboard - Clientes: total={clients_total}, active={clients_active}, online={clients_online}, get_all={len(all_clients)}")
+        
         stats = {
             'domains': {
                 'total': Domain.count(active_only=False),
                 'active': Domain.count(active_only=True)
             },
             'clients': {
-                'total': DNSClient.count(active_only=False),
-                'active': DNSClient.count(active_only=True),
-                'online': len([c for c in DNSClient.get_all() if c.status == 'online'])
+                'total': clients_total,
+                'active': clients_active,
+                'online': clients_online
             },
             'uploads': {
                 'total': len(PDFUpload.get_recent(limit=1000)),
@@ -266,11 +273,14 @@ def clients_list():
     """Lista de clientes DNS"""
     try:
         clients = DNSClient.get_all(active_only=False)
+        logger.info(f"Renderizando página de clientes: {len(clients)} clientes encontrados")
+        for c in clients:
+            logger.debug(f"  Cliente: id={c.id}, name={c.name}, active={c.active}, status={c.status}")
         
         return render_template('clients.html', clients=clients)
     
     except Exception as e:
-        logger.error(f"Erro ao listar clientes: {e}")
+        logger.error(f"Erro ao listar clientes: {e}", exc_info=True)
         flash('Erro ao carregar clientes', 'error')
         return render_template('clients.html', clients=[])
 

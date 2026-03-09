@@ -11,11 +11,14 @@ Data: 2026-02-08
 """
 
 import json
+import logging
 import secrets
 from datetime import datetime
 from typing import Dict, List, Optional
 
 from backend.database.db import db
+
+logger = logging.getLogger(__name__)
 
 
 class DNSClient:
@@ -63,11 +66,16 @@ class DNSClient:
         if isinstance(metadata, str):
             metadata = json.loads(metadata)
         
+        # Converter ip_address para string (PostgreSQL INET retorna como string, mas garantir)
+        ip_addr = data.get('ip_address')
+        if ip_addr is not None:
+            ip_addr = str(ip_addr)
+        
         return cls(
             id=data.get('id'),
             name=data.get('name'),
             api_key=data.get('api_key'),
-            ip_address=data.get('ip_address'),
+            ip_address=ip_addr,
             description=data.get('description'),
             status=data.get('status', 'offline'),
             last_sync=data.get('last_sync'),
@@ -118,6 +126,8 @@ class DNSClient:
         
         metadata_json = json.dumps(metadata) if metadata else '{}'
         
+        logger.info(f"Criando cliente DNS: name={name}, ip_address={ip_address}")
+        
         query = """
         INSERT INTO dns_clients (name, api_key, description, ip_address, metadata)
         VALUES (%s, %s, %s, %s, %s)
@@ -125,14 +135,20 @@ class DNSClient:
                   last_heartbeat, domains_count, active, created_at, updated_at, metadata
         """
         
-        result = db.execute_query(
-            query,
-            (name, api_key, description, ip_address, metadata_json)
-        )
+        try:
+            result = db.execute_query(
+                query,
+                (name, api_key, description, ip_address, metadata_json)
+            )
+        except Exception as e:
+            logger.error(f"Erro ao executar INSERT de cliente DNS: {e}")
+            raise
         
         if not result:
+            logger.error(f"INSERT de cliente DNS não retornou dados. Query executada mas sem RETURNING.")
             raise Exception('Falha ao criar cliente: nenhum resultado retornado do banco de dados')
         
+        logger.info(f"Cliente DNS criado com sucesso: id={result[0].get('id')}, name={result[0].get('name')}")
         return cls.from_dict(result[0])
     
     @classmethod
@@ -164,6 +180,7 @@ class DNSClient:
             query = "SELECT * FROM dns_clients ORDER BY name"
         
         result = db.execute_query(query)
+        logger.info(f"DNSClient.get_all(active_only={active_only}): {len(result)} resultados")
         return [cls.from_dict(row) for row in result]
     
     @classmethod
@@ -175,7 +192,9 @@ class DNSClient:
             query = "SELECT COUNT(*) as count FROM dns_clients"
         
         result = db.execute_query(query)
-        return result[0]['count']
+        count_val = result[0]['count'] if result else 0
+        logger.info(f"DNSClient.count(active_only={active_only}): {count_val}")
+        return count_val
     
     def update(self, **kwargs) -> bool:
         """Atualiza dados do cliente"""
