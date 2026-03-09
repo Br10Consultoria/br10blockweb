@@ -112,6 +112,12 @@ class DNSClient:
         """Cria novo cliente DNS"""
         api_key = cls.generate_api_key()
         
+        # Tratar ip_address vazio como None para compatibilidade com tipo INET do PostgreSQL
+        if ip_address is not None and str(ip_address).strip() == '':
+            ip_address = None
+        
+        metadata_json = json.dumps(metadata) if metadata else '{}'
+        
         query = """
         INSERT INTO dns_clients (name, api_key, description, ip_address, metadata)
         VALUES (%s, %s, %s, %s, %s)
@@ -119,12 +125,13 @@ class DNSClient:
                   last_heartbeat, domains_count, active, created_at, updated_at, metadata
         """
         
-        metadata_json = json.dumps(metadata) if metadata else '{}'
-        
         result = db.execute_query(
             query,
             (name, api_key, description, ip_address, metadata_json)
         )
+        
+        if not result:
+            raise Exception('Falha ao criar cliente: nenhum resultado retornado do banco de dados')
         
         return cls.from_dict(result[0])
     

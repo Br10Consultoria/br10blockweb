@@ -316,6 +316,83 @@ document.getElementById('newKeyModal').addEventListener('hidden.bs.modal', funct
     }
 });
 
+/**
+ * Adiciona uma nova linha na tabela de clientes dinamicamente.
+ * Isso garante que o cliente reciém-cadastrado apareça imediatamente,
+ * mesmo que o reload não ocorra por algum motivo.
+ */
+function appendClientToTable(client) {
+    const tbody = document.querySelector('#clients-table tbody, table.table-hover tbody');
+    if (!tbody) return;
+
+    // Se a tabela estava vazia (mensagem "Nenhum cliente"), limpar
+    const emptyMsg = tbody.querySelector('.text-center, td[colspan]');
+    if (emptyMsg) {
+        const emptyRow = emptyMsg.closest('tr');
+        if (emptyRow) emptyRow.remove();
+    }
+    // Se o conteúdo vazio era um div fora da tabela, esconder
+    const emptyDiv = document.querySelector('.text-center.p-5');
+    if (emptyDiv) emptyDiv.style.display = 'none';
+
+    const tr = document.createElement('tr');
+    tr.classList.add('table-success');  // Destacar o novo cliente
+    tr.innerHTML = `
+        <td>
+            <strong>${client.name || ''}</strong>
+            ${client.description ? '<br><small class="text-muted">' + client.description + '</small>' : ''}
+        </td>
+        <td><code>${client.ip_address || '-'}</code></td>
+        <td><span class="badge bg-secondary"><i class="fas fa-circle"></i> Offline</span></td>
+        <td><small class="text-muted">Nunca</small></td>
+        <td><span class="badge bg-primary">0</span></td>
+        <td>
+            <div class="input-group input-group-sm" style="max-width: 200px;">
+                <input type="password" class="form-control form-control-sm font-monospace"
+                       value="${client.api_key || ''}" id="key-${client.id}" readonly>
+                <button class="btn btn-outline-secondary btn-sm"
+                        onclick="toggleKey('key-${client.id}')" title="Mostrar/Ocultar">
+                    <i class="fas fa-eye"></i>
+                </button>
+                <button class="btn btn-outline-secondary btn-sm"
+                        onclick="copyKey('${client.api_key || ''}')" title="Copiar">
+                    <i class="fas fa-copy"></i>
+                </button>
+            </div>
+        </td>
+        <td>
+            <div class="btn-group btn-group-sm">
+                <a href="/clients/${client.id}" class="btn btn-outline-primary" title="Detalhes">
+                    <i class="fas fa-eye"></i>
+                </a>
+                <button class="btn btn-outline-warning"
+                        onclick="regenerateKey(${client.id}, '${(client.name || '').replace(/'/g, "\\'")}')"
+                        title="Regenerar API Key">
+                    <i class="fas fa-key"></i>
+                </button>
+                <button class="btn btn-outline-danger"
+                        onclick="deleteClient(${client.id}, '${(client.name || '').replace(/'/g, "\\'")}')"
+                        title="Remover">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </td>
+    `;
+    tbody.prepend(tr);
+
+    // Remover destaque após 3 segundos
+    setTimeout(() => tr.classList.remove('table-success'), 3000);
+}
+
+/**
+ * Abre o modal de API Key de forma segura, aguardando o modal de cadastro fechar.
+ */
+function showApiKeyModal(apiKey) {
+    document.getElementById('new-api-key').value = apiKey;
+    reloadOnKeyModalClose = true;
+    new bootstrap.Modal(document.getElementById('newKeyModal')).show();
+}
+
 async function addClient() {
     const name = document.getElementById('client-name').value.trim();
     const ip = document.getElementById('client-ip').value.trim();
@@ -342,17 +419,27 @@ async function addClient() {
         const data = await response.json();
 
         if (data.success) {
-            // Fechar modal de cadastro
-            const addModal = bootstrap.Modal.getInstance(document.getElementById('addClientModal'));
-            addModal.hide();
+            // Adicionar o novo cliente à tabela imediatamente
+            if (data.client) {
+                appendClientToTable(data.client);
+            }
 
-            // Aguardar o modal fechar completamente antes de abrir o próximo
-            document.getElementById('addClientModal').addEventListener('hidden.bs.modal', function openKeyModal() {
-                document.getElementById('addClientModal').removeEventListener('hidden.bs.modal', openKeyModal);
-                document.getElementById('new-api-key').value = data.client.api_key;
-                reloadOnKeyModalClose = true; // Sinaliza para recarregar ao fechar
-                new bootstrap.Modal(document.getElementById('newKeyModal')).show();
-            });
+            // Fechar modal de cadastro
+            const addModalEl = document.getElementById('addClientModal');
+            const addModal = bootstrap.Modal.getInstance(addModalEl);
+
+            // Guardar a API key para exibir depois
+            const newApiKey = data.client ? data.client.api_key : '';
+
+            // Usar listener one-time para aguardar o fechamento completo do modal
+            const onAddModalHidden = function() {
+                addModalEl.removeEventListener('hidden.bs.modal', onAddModalHidden);
+                // Pequeno delay para garantir que o DOM está pronto
+                setTimeout(() => showApiKeyModal(newApiKey), 150);
+            };
+            addModalEl.addEventListener('hidden.bs.modal', onAddModalHidden);
+
+            addModal.hide();
         } else {
             alertEl.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> ${data.error || 'Erro ao criar cliente.'}</div>`;
         }
@@ -375,7 +462,7 @@ async function regenerateKey(clientId, clientName) {
 
         if (data.success) {
             document.getElementById('new-api-key').value = data.api_key;
-            reloadOnKeyModalClose = false; // Não recarregar ao fechar (lista já está atualizada)
+            reloadOnKeyModalClose = false;
             new bootstrap.Modal(document.getElementById('newKeyModal')).show();
         } else {
             alert('Erro: ' + (data.error || 'Falha ao regenerar API key.'));

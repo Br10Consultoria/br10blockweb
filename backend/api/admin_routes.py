@@ -231,11 +231,24 @@ def create_client():
     try:
         data = request.get_json()
         name = data.get('name', '').strip()
-        description = data.get('description', '')
-        ip_address = data.get('ip_address', '')
+        description = data.get('description', '') or ''
+        ip_address = data.get('ip_address', '') or ''
+        ip_address = ip_address.strip() if ip_address else None
         
         if not name:
             return jsonify({'success': False, 'error': 'Nome não fornecido'}), 400
+        
+        # Validar formato do IP se fornecido
+        if ip_address:
+            import ipaddress
+            try:
+                ipaddress.ip_address(ip_address)
+            except ValueError:
+                # Tentar como rede (ex: 192.168.1.0/24)
+                try:
+                    ipaddress.ip_network(ip_address, strict=False)
+                except ValueError:
+                    return jsonify({'success': False, 'error': f'Endereço IP inválido: {ip_address}'}), 400
         
         client = DNSClient.create(
             name=name,
