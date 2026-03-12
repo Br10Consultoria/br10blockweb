@@ -13,7 +13,7 @@
 #   5. Inicializa o banco de dados e cria o usuário admin
 #
 # Autor: BR10 Team
-# Versão: 3.1.0
+# Versão: 3.2.0
 # =============================================================================
 
 set -euo pipefail
@@ -48,6 +48,22 @@ setup_env() {
 
     if [[ -f ".env" ]]; then
         warn "Arquivo .env já existe. Mantendo configurações atuais."
+        # Verificar se os hosts estão corretos para Swarm
+        if grep -q "DB_HOST=localhost\|DB_HOST=127.0.0.1" .env; then
+            warn "Corrigindo DB_HOST de localhost para 'postgres' (necessário no Swarm)..."
+            sed -i 's/DB_HOST=localhost/DB_HOST=postgres/g' .env
+            sed -i 's/DB_HOST=127.0.0.1/DB_HOST=postgres/g' .env
+        fi
+        if grep -q "REDIS_HOST=localhost\|REDIS_HOST=127.0.0.1" .env; then
+            warn "Corrigindo REDIS_HOST de localhost para 'redis' (necessário no Swarm)..."
+            sed -i 's/REDIS_HOST=localhost/REDIS_HOST=redis/g' .env
+            sed -i 's/REDIS_HOST=127.0.0.1/REDIS_HOST=redis/g' .env
+        fi
+        if grep -q "SECRET_KEY=gere_com_openssl" .env; then
+            warn "Gerando SECRET_KEY real..."
+            NEW_KEY="$(openssl rand -hex 32)"
+            sed -i "s/SECRET_KEY=gere_com_openssl_rand_hex_32/SECRET_KEY=${NEW_KEY}/" .env
+        fi
         source .env
         return
     fi
@@ -56,16 +72,52 @@ setup_env() {
     SECRET_KEY="$(openssl rand -hex 32)"
     ADMIN_PASS="$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9' | head -c12)"
 
+    # IMPORTANTE: DB_HOST e REDIS_HOST devem ser os nomes dos serviços no Swarm
     cat > .env << EOF
 # BR10 Block Web - Configuração do Servidor
 # Gerado automaticamente em $(date '+%Y-%m-%d %H:%M:%S')
+
+# Flask
 FLASK_ENV=production
 SECRET_KEY=${SECRET_KEY}
 DEBUG=False
-DB_PASSWORD=${DB_PASSWORD}
-REDIS_PASSWORD=
-LOG_LEVEL=INFO
+HOST=0.0.0.0
+PORT=8084
+
+# Traefik
 TRAEFIK_DOMAIN=br10blockweb.br10consultoria.com.br
+
+# PostgreSQL — use o nome do serviço Docker, NÃO localhost
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=br10blockweb
+DB_USER=br10user
+DB_PASSWORD=${DB_PASSWORD}
+
+# Redis — use o nome do serviço Docker, NÃO 127.0.0.1
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=
+
+# Cache TTL (segundos)
+CACHE_TTL_DOMAINS=300
+CACHE_TTL_STATS=60
+CACHE_TTL_CLIENTS=120
+
+# Sessão
+SESSION_LIFETIME_HOURS=24
+
+# Upload
+MAX_CONTENT_LENGTH=16777216
+
+# API
+API_RATE_LIMIT=100
+
+# Logging
+LOG_LEVEL=INFO
+LOG_MAX_BYTES=10485760
+LOG_BACKUP_COUNT=5
 EOF
 
     cat > /root/br10blockweb_credentials.txt << EOF
@@ -78,6 +130,7 @@ Painel Web:
   Senha: ${ADMIN_PASS}
 
 Banco de Dados:
+  Host: postgres (interno Docker)
   Senha: ${DB_PASSWORD}
 
 GUARDE ESTE ARQUIVO EM LOCAL SEGURO!
@@ -106,8 +159,8 @@ deploy_stack() {
     docker stack deploy -c stack.yml "${STACK_NAME}" --with-registry-auth
     success "Stack '${STACK_NAME}' deployado"
 
-    info "Aguardando serviços iniciarem (60s)..."
-    sleep 60
+    info "Aguardando serviços iniciarem (75s)..."
+    sleep 75
     docker stack services "${STACK_NAME}"
 }
 
@@ -121,23 +174,30 @@ init_database() {
         read -rp "Digite a senha para o usuário admin: " ADMIN_PASS
     fi
 
-    # Aguardar o container do app estar rodando
+    # Aguardar o container do app estar rodando e saudável
     local retries=0
     local app_container=""
-    while [[ $retries -lt 12 ]]; do
-        app_container=$(docker ps -q -f "name=${STACK_NAME}_app" 2>/dev/null | head -1)
+    while [[ $retries -lt 18 ]]; do
+        app_container=$(docker ps -q -f "name=${STACK_NAME}_app" --filter "status=running" 2>/dev/null | head -1)
         [[ -n "${app_container}" ]] && break
-        info "Aguardando container app... (${retries}/12)"
+        info "Aguardando container app... (${retries}/18)"
         sleep 10
         retries=$((retries + 1))
     done
 
-    [[ -z "${app_container}" ]] && error "Container app não encontrado após 120s. Verifique: docker service ps ${STACK_NAME}_app"
+    if [[ -z "${app_container}" ]]; then
+        warn "Container app não encontrado. Verifique os logs:"
+        warn "  docker service logs ${STACK_NAME}_app --tail 30"
+        warn "Para inicializar manualmente após o container subir:"
+        warn "  docker exec -it \$(docker ps -q -f name=${STACK_NAME}_app) python /app/init_db_direct.py --admin-user admin --admin-pass SUASENHA"
+        return
+    fi
 
+    # Usar init_db_direct.py que é mais robusto
     docker exec "${app_container}" \
-        python /app/init_db.py --admin-user admin --admin-pass "${ADMIN_PASS}" \
+        python /app/init_db_direct.py --admin-user admin --admin-pass "${ADMIN_PASS}" \
         && success "Banco de dados inicializado" \
-        || warn "Banco pode já estar inicializado (normal em redeploys)"
+        || warn "Erro na inicialização. Tente manualmente: docker exec -it ${app_container} python /app/init_db_direct.py --admin-user admin --admin-pass SUASENHA"
 }
 
 show_summary() {
