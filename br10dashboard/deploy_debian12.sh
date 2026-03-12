@@ -16,7 +16,8 @@
 #   - IP do servidor BR10 Block Web
 #   - API Key gerada no painel (Clientes DNS → Novo Cliente)
 # =============================================================================
-set -euo pipefail
+# Não usar set -e para que falhas do Unbound não abortem o deploy
+set -uo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -88,13 +89,13 @@ configure_unbound_rpz() {
 
     # Criar arquivo de zona RPZ vazio se não existir
     if [[ ! -f "${UNBOUND_ZONE_FILE}" ]]; then
-        cat > "${UNBOUND_ZONE_FILE}" << 'EOF'
+        cat > "${UNBOUND_ZONE_FILE}" << 'RPZEOF'
 ; BR10 Block Web - RPZ Zone File (vazio - aguardando primeira sincronização)
 $ORIGIN br10block.rpz.
 $TTL 60
 @ IN SOA localhost. root.localhost. (1 3600 900 604800 60)
 @ IN NS localhost.
-EOF
+RPZEOF
         chown unbound:unbound "${UNBOUND_ZONE_FILE}" 2>/dev/null || true
         chmod 644 "${UNBOUND_ZONE_FILE}"
         success "Arquivo de zona RPZ criado (vazio)"
@@ -103,12 +104,12 @@ EOF
     fi
 
     # Criar configuração RPZ para Unbound
-    cat > "${UNBOUND_RPZ_CONF}" << EOF
+    # NOTA: não duplicar 'interface' e 'access-control' se já estiverem no unbound.conf principal
+    cat > "${UNBOUND_RPZ_CONF}" << CONFEOF
 # BR10 Block Web - Configuração RPZ
 # Gerado em $(date '+%Y-%m-%d %H:%M:%S')
 server:
     # Aceitar consultas de qualquer IP (rede interna)
-    interface: 0.0.0.0
     access-control: 0.0.0.0/0 allow
 
     # RPZ - Response Policy Zone
@@ -117,22 +118,29 @@ server:
         zonefile: "${UNBOUND_ZONE_FILE}"
         rpz-log: yes
         rpz-log-name: "br10block"
-EOF
+CONFEOF
 
     # Verificar se a configuração é válida
     if unbound-checkconf 2>/dev/null; then
         success "Configuração do Unbound válida"
     else
-        warn "Verificação da configuração falhou. Verifique /etc/unbound/unbound.conf"
+        warn "Verificação da configuração falhou — removendo configuração RPZ problemática"
+        rm -f "${UNBOUND_RPZ_CONF}"
+        warn "RPZ não configurado. Configure manualmente após o deploy."
+        return 0
     fi
 
-    # Reiniciar Unbound para aplicar RPZ
-    systemctl restart unbound
-    sleep 2
-    if systemctl is-active --quiet unbound; then
-        success "Unbound reiniciado com suporte a RPZ"
+    # Reiniciar Unbound para aplicar RPZ (não aborta o deploy em caso de falha)
+    if systemctl restart unbound 2>/dev/null; then
+        sleep 2
+        if systemctl is-active --quiet unbound; then
+            success "Unbound reiniciado com suporte a RPZ"
+        else
+            warn "Unbound não ficou ativo após restart. Verifique: journalctl -u unbound -n 20"
+        fi
     else
-        warn "Unbound não iniciou corretamente. Verifique: journalctl -u unbound -n 20"
+        warn "Falha ao reiniciar Unbound. O deploy continua sem interrupção."
+        warn "Verifique manualmente: journalctl -u unbound -n 20"
     fi
 }
 
