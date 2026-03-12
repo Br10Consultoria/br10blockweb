@@ -59,13 +59,19 @@ check_docker() {
     success "Docker $(docker --version | cut -d' ' -f3 | tr -d ',') disponível"
 }
 
+install_dependencies() {
+    step "Instalando dependências"
+    apt-get update -qq
+    apt-get install -y curl jq
+    success "curl e jq instalados"
+}
+
 install_unbound() {
     step "Verificando Unbound"
     if command -v unbound &>/dev/null; then
         success "Unbound já instalado: $(unbound -V 2>&1 | head -1)"
     else
         echo "  Instalando Unbound..."
-        apt-get update -qq
         apt-get install -y unbound
         success "Unbound instalado"
     fi
@@ -300,6 +306,7 @@ main() {
     banner
     check_root
     check_docker
+    install_dependencies
     install_unbound
     configure_unbound_rpz
     setup_env

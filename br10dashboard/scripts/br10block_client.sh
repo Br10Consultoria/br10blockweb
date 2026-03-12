@@ -463,23 +463,46 @@ update_redis_stats() {
     log_debug "Estatísticas Redis atualizadas"
 }
 
+# Iniciar sincronização no servidor (obtém sync_id para rastreamento)
+start_sync_on_server() {
+    local start_url="${BR10_SERVER_URL}/api/v1/client/sync/start"
+    local response
+    
+    log_debug "Registrando início de sincronização no servidor..."
+    
+    response=$(curl --silent --max-time "${HTTP_TIMEOUT}" \
+        --header "X-API-Key: ${BR10_API_KEY}" \
+        --header "Content-Type: application/json" \
+        --request POST \
+        "${start_url}" 2>/dev/null || echo "{}")
+    
+    local sync_id
+    sync_id=$(echo "${response}" | jq -r '.sync_id // empty' 2>/dev/null || echo "")
+    
+    if [[ -n "${sync_id}" ]]; then
+        log_debug "sync_id obtido: ${sync_id}"
+        echo "${sync_id}"
+    else
+        log_warn "Não foi possível obter sync_id (não crítico)"
+        echo ""
+    fi
+}
+
 # Notificar servidor sobre sincronização concluída
 notify_server() {
     local domains_applied="$1"
     local status="$2"
     local duration="$3"
+    local sync_id="${4:-}"
     
     local notify_url="${BR10_SERVER_URL}/api/v1/client/sync/complete"
     local payload
-    payload=$(cat << EOF
-{
-    "domains_applied": ${domains_applied},
-    "status": "${status}",
-    "duration_seconds": ${duration},
-    "message": "Sincronização concluída pelo cliente"
-}
-EOF
-)
+    
+    if [[ -n "${sync_id}" ]]; then
+        payload="{\"sync_id\": ${sync_id}, \"domains_applied\": ${domains_applied}, \"status\": \"${status}\", \"duration_seconds\": ${duration}, \"message\": \"Sincronização concluída pelo cliente\"}"
+    else
+        payload="{\"domains_applied\": ${domains_applied}, \"status\": \"${status}\", \"duration_seconds\": ${duration}, \"message\": \"Sincronização concluída pelo cliente\"}"
+    fi
     
     log_debug "Notificando servidor sobre sincronização..."
     
@@ -607,6 +630,9 @@ main() {
         exit 0
     fi
     
+    # Registrar início no servidor e obter sync_id
+    SYNC_ID=$(start_sync_on_server || echo "")
+    
     # Obter status do servidor
     get_server_status || true
     
@@ -651,7 +677,7 @@ main() {
     update_redis_stats "${DOMAIN_COUNT}" "success"
     
     # Notificar servidor
-    notify_server "${DOMAIN_COUNT}" "success" "${duration}"
+    notify_server "${DOMAIN_COUNT}" "success" "${duration}" "${SYNC_ID:-}"
     
     # Limpar arquivo temporário
     rm -f "${TMP_FILE}"
