@@ -37,7 +37,8 @@ COPY backend/ ./backend/
 COPY frontend/ ./frontend/
 COPY init_db.py .
 COPY init_db_direct.py .
-COPY .env.example .env
+# NÃO copiar .env para dentro da imagem — variáveis vêm do Docker Swarm/Compose
+# As variáveis de ambiente são injetadas pelo stack.yml via 'environment:'
 
 # Criar diretórios necessários
 RUN mkdir -p uploads data/backups data/uploads data/exports logs
