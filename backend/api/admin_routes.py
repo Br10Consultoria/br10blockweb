@@ -23,6 +23,7 @@ from backend.models.domain import Domain
 from backend.models.domain_history import DomainHistory
 from backend.models.dns_client import DNSClient
 from backend.models.pdf_upload import PDFUpload
+from backend.models.pdf_removal import PDFRemoval
 from backend.models.sync_history import SyncHistory
 from backend.services.domain_manager import DomainManager
 from backend.utils.helpers import paginate, safe_int
@@ -199,6 +200,93 @@ def upload_pdf():
     
     except Exception as e:
         logger.error(f"Erro no upload de PDF: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_api.route('/domains/remove-pdf', methods=['POST'])
+@require_admin_api
+def upload_removal_pdf():
+    """Upload de PDF para REMOVER domínios da lista de bloqueio"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'Nenhum arquivo enviado'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'Nome de arquivo vazio'}), 400
+
+        valid, error = validate_file_upload(file.filename, -1)
+        if not valid:
+            return jsonify({'success': False, 'error': error}), 400
+
+        original_filename = file.filename
+        safe_filename = sanitize_filename(original_filename)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"removal_{timestamp}_{safe_filename}"
+
+        file_path = Config.UPLOAD_FOLDER / filename
+        file.save(str(file_path))
+
+        real_size = file_path.stat().st_size
+        if real_size == 0:
+            file_path.unlink(missing_ok=True)
+            return jsonify({'success': False, 'error': 'Arquivo enviado está vazio'}), 400
+
+        permanent = request.form.get('permanent', 'false').lower() == 'true'
+
+        result = DomainManager.process_pdf_removal(
+            file_path=file_path,
+            original_filename=original_filename,
+            uploaded_by=request.user.username,
+            permanent=permanent
+        )
+
+        return jsonify(result), 200 if result['success'] else 400
+
+    except Exception as e:
+        logger.error(f"Erro no upload de PDF de remoção: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_api.route('/domains/remove-bulk', methods=['POST'])
+@require_admin_api
+def remove_domains_bulk_api():
+    """Remove múltiplos domínios manualmente"""
+    try:
+        data = request.get_json() or {}
+        domains = data.get('domains', [])
+        permanent = data.get('permanent', False)
+
+        if not domains:
+            return jsonify({'success': False, 'error': 'Lista de domínios vazia'}), 400
+
+        result = DomainManager.remove_domains_bulk(
+            domains=domains,
+            performed_by=request.user.username,
+            permanent=permanent
+        )
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"Erro na remoção em massa: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@admin_api.route('/history/removals', methods=['GET'])
+@require_admin_api
+def get_removal_history():
+    """Obtém histórico de uploads de PDF para remoção"""
+    try:
+        limit = safe_int(request.args.get('limit', 20), 20)
+        removals = PDFRemoval.get_recent(limit)
+        return jsonify({
+            'success': True,
+            'removals': [r.to_dict() for r in removals],
+            'total': len(removals)
+        }), 200
+    except Exception as e:
+        logger.error(f"Erro ao buscar histórico de remoções: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

@@ -267,6 +267,13 @@ def domains_upload():
     return render_template('upload.html')
 
 
+@app.route('/domains/removal')
+@require_admin
+def domains_removal():
+    """Página de remoção de domínios"""
+    return render_template('removal.html')
+
+
 @app.route('/clients')
 @require_admin
 def clients_list():

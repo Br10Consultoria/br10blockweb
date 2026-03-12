@@ -1,0 +1,458 @@
+{% extends "base.html" %}
+{% block title %}Remover Domínios - {{ app_name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.upload-zone {
+    border: 3px dashed #dc3545;
+    border-radius: 12px;
+    padding: 3rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: #fff5f5;
+}
+.upload-zone:hover, .upload-zone.dragover {
+    border-color: #b02a37;
+    background: #ffe0e0;
+}
+.upload-zone i {
+    font-size: 3rem;
+    color: #dc3545;
+    margin-bottom: 1rem;
+}
+#progress-section { display: none; }
+#result-section { display: none; }
+.domain-preview-item {
+    font-family: monospace;
+    font-size: 0.85rem;
+    padding: 2px 8px;
+    background: #fff5f5;
+    border: 1px solid #f5c2c7;
+    border-radius: 4px;
+    margin: 2px;
+    display: inline-block;
+    color: #842029;
+}
+.stat-card {
+    border-radius: 10px;
+    padding: 1rem 1.5rem;
+    text-align: center;
+}
+.history-row:hover { background: #fff5f5; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="h3 mb-0"><i class="fas fa-minus-circle text-danger"></i> Remover Domínios</h1>
+            <p class="text-muted mb-0">Remova domínios da lista de bloqueio via PDF ou inserção manual</p>
+        </div>
+        <a href="{{ url_for('domains_list') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-list"></i> Ver Domínios
+        </a>
+    </div>
+
+    <!-- Abas -->
+    <ul class="nav nav-tabs mb-4" id="removalTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="pdf-tab" data-bs-toggle="tab" data-bs-target="#pdf-panel" type="button">
+                <i class="fas fa-file-pdf text-danger"></i> Upload PDF
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="manual-tab" data-bs-toggle="tab" data-bs-target="#manual-panel" type="button">
+                <i class="fas fa-keyboard"></i> Remoção Manual
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history-panel" type="button">
+                <i class="fas fa-history"></i> Histórico
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="removalTabsContent">
+
+        <!-- === ABA: UPLOAD PDF === -->
+        <div class="tab-pane fade show active" id="pdf-panel" role="tabpanel">
+            <div class="row">
+                <div class="col-lg-7">
+                    <div class="card shadow-sm border-danger">
+                        <div class="card-header bg-white">
+                            <h5 class="mb-0"><i class="fas fa-file-pdf text-danger"></i> Selecionar PDF de Remoção</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="removal-form" enctype="multipart/form-data">
+                                <div class="upload-zone" id="drop-zone">
+                                    <i class="fas fa-file-pdf"></i>
+                                    <h5>Arraste o PDF aqui</h5>
+                                    <p class="text-muted mb-3">ou clique para selecionar o arquivo</p>
+                                    <input type="file" id="pdf-file" name="file" accept=".pdf" class="d-none">
+                                    <button type="button" class="btn btn-danger" onclick="document.getElementById('pdf-file').click()">
+                                        <i class="fas fa-folder-open"></i> Selecionar PDF
+                                    </button>
+                                    <p class="text-muted mt-2 mb-0"><small>Tamanho máximo: 16MB | Formato: PDF</small></p>
+                                </div>
+
+                                <div id="file-info" class="alert alert-secondary mt-3 d-none">
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-file-pdf text-danger me-2 fs-4"></i>
+                                        <div>
+                                            <strong id="file-name"></strong>
+                                            <br><small class="text-muted" id="file-size"></small>
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearFile()">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="form-check mt-3">
+                                    <input class="form-check-input" type="checkbox" id="permanent-check" name="permanent" value="true">
+                                    <label class="form-check-label text-danger" for="permanent-check">
+                                        <strong>Remoção permanente</strong> (não pode ser desfeita)
+                                    </label>
+                                    <div class="form-text">Se desmarcado, os domínios serão apenas desativados (podem ser reativados).</div>
+                                </div>
+
+                                <div class="mt-3">
+                                    <button type="button" class="btn btn-danger btn-lg w-100" id="submit-btn" onclick="uploadRemovalPDF()" disabled>
+                                        <i class="fas fa-minus-circle"></i> Processar Remoção
+                                    </button>
+                                </div>
+                            </form>
+
+                            <!-- Progresso -->
+                            <div id="progress-section" class="mt-3">
+                                <div class="d-flex align-items-center mb-2">
+                                    <div class="spinner-border spinner-border-sm text-danger me-2"></div>
+                                    <span id="progress-text">Processando PDF...</span>
+                                </div>
+                                <div class="progress">
+                                    <div class="progress-bar bg-danger progress-bar-striped progress-bar-animated" style="width: 100%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Resultado -->
+                <div class="col-lg-5">
+                    <div id="result-section">
+                        <div class="card shadow-sm" id="result-card">
+                            <div class="card-header bg-white">
+                                <h5 class="mb-0" id="result-title"></h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-3 mb-3" id="result-stats"></div>
+                                <div id="result-preview"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dica -->
+                    <div class="card shadow-sm border-warning mt-3" id="tip-card">
+                        <div class="card-body">
+                            <h6><i class="fas fa-lightbulb text-warning"></i> Como funciona</h6>
+                            <p class="small text-muted mb-2">O sistema extrai os domínios do PDF e os remove da lista de bloqueio ativa.</p>
+                            <ul class="small text-muted mb-0">
+                                <li>Domínios não encontrados são ignorados</li>
+                                <li>Sem remoção permanente: domínios ficam inativos (podem ser reativados)</li>
+                                <li>Com remoção permanente: domínios são excluídos do banco</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- === ABA: REMOÇÃO MANUAL === -->
+        <div class="tab-pane fade" id="manual-panel" role="tabpanel">
+            <div class="row">
+                <div class="col-lg-7">
+                    <div class="card shadow-sm border-danger">
+                        <div class="card-header bg-white">
+                            <h5 class="mb-0"><i class="fas fa-keyboard text-danger"></i> Remover Domínios Manualmente</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label">Domínios para remover <span class="text-muted">(um por linha)</span></label>
+                                <textarea class="form-control font-monospace" id="manual-domains" rows="10"
+                                    placeholder="exemplo.com&#10;outro-site.com.br&#10;dominio-a-remover.net"></textarea>
+                                <div class="form-text" id="domain-counter">0 domínios</div>
+                            </div>
+
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="manual-permanent">
+                                <label class="form-check-label text-danger" for="manual-permanent">
+                                    <strong>Remoção permanente</strong> (não pode ser desfeita)
+                                </label>
+                            </div>
+
+                            <button type="button" class="btn btn-danger w-100" onclick="removeManual()">
+                                <i class="fas fa-minus-circle"></i> Remover Domínios
+                            </button>
+
+                            <div id="manual-result" class="mt-3"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-5">
+                    <div class="card shadow-sm border-info">
+                        <div class="card-body">
+                            <h6><i class="fas fa-info-circle text-info"></i> Dica rápida</h6>
+                            <p class="small text-muted mb-0">Cole a lista de domínios, um por linha. O sistema ignora linhas em branco e domínios inválidos.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- === ABA: HISTÓRICO === -->
+        <div class="tab-pane fade" id="history-panel" role="tabpanel">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-history text-secondary"></i> Histórico de Remoções via PDF</h5>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="loadHistory()">
+                        <i class="fas fa-sync"></i> Atualizar
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    <div id="history-loading" class="text-center p-4">
+                        <div class="spinner-border text-secondary"></div>
+                    </div>
+                    <div id="history-content" class="d-none">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Arquivo</th>
+                                    <th class="text-center">Extraídos</th>
+                                    <th class="text-center">Removidos</th>
+                                    <th class="text-center">Não encontrados</th>
+                                    <th>Por</th>
+                                    <th>Data</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-tbody"></tbody>
+                        </table>
+                        <div id="history-empty" class="text-center p-4 text-muted d-none">
+                            <i class="fas fa-inbox fa-2x mb-2"></i>
+                            <p>Nenhum upload de remoção registrado ainda.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /tab-content -->
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// === Upload PDF ===
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('pdf-file');
+const submitBtn = document.getElementById('submit-btn');
+
+fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) showFileInfo(fileInput.files[0]);
+});
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f && f.name.endsWith('.pdf')) {
+        fileInput.files = e.dataTransfer.files;
+        showFileInfo(f);
+    }
+});
+
+function showFileInfo(file) {
+    document.getElementById('file-name').textContent = file.name;
+    document.getElementById('file-size').textContent = (file.size / 1024).toFixed(1) + ' KB';
+    document.getElementById('file-info').classList.remove('d-none');
+    submitBtn.disabled = false;
+}
+
+function clearFile() {
+    fileInput.value = '';
+    document.getElementById('file-info').classList.add('d-none');
+    submitBtn.disabled = true;
+}
+
+async function uploadRemovalPDF() {
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    const permanent = document.getElementById('permanent-check').checked;
+    const formData = new FormData();
+    formData.append('file', file);
+    if (permanent) formData.append('permanent', 'true');
+
+    document.getElementById('progress-section').style.display = 'block';
+    document.getElementById('result-section').style.display = 'none';
+    submitBtn.disabled = true;
+    document.getElementById('tip-card').style.display = 'none';
+
+    try {
+        const resp = await fetch('/api/v1/admin/domains/remove-pdf', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await resp.json();
+        document.getElementById('progress-section').style.display = 'none';
+        showPDFResult(data);
+    } catch (e) {
+        document.getElementById('progress-section').style.display = 'none';
+        showPDFResult({ success: false, error: 'Erro de comunicação com o servidor.' });
+    }
+}
+
+function showPDFResult(data) {
+    const section = document.getElementById('result-section');
+    const card = document.getElementById('result-card');
+    const title = document.getElementById('result-title');
+    const stats = document.getElementById('result-stats');
+    const preview = document.getElementById('result-preview');
+
+    section.style.display = 'block';
+
+    if (data.success) {
+        card.className = 'card shadow-sm border-success';
+        title.innerHTML = '<i class="fas fa-check-circle text-success"></i> Remoção concluída';
+        stats.innerHTML = `
+            <div class="col-4">
+                <div class="stat-card bg-light">
+                    <div class="fs-3 fw-bold text-secondary">${data.domains_extracted}</div>
+                    <small class="text-muted">Extraídos</small>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="stat-card bg-danger bg-opacity-10">
+                    <div class="fs-3 fw-bold text-danger">${data.domains_removed}</div>
+                    <small class="text-muted">Removidos</small>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="stat-card bg-warning bg-opacity-10">
+                    <div class="fs-3 fw-bold text-warning">${data.domains_not_found}</div>
+                    <small class="text-muted">Não encontrados</small>
+                </div>
+            </div>`;
+
+        if (data.domains_preview && data.domains_preview.length > 0) {
+            const items = data.domains_preview.map(d => `<span class="domain-preview-item">${d}</span>`).join('');
+            preview.innerHTML = `<p class="text-muted small mb-1">Amostra dos domínios processados:</p><div>${items}</div>`;
+        }
+    } else {
+        card.className = 'card shadow-sm border-danger';
+        title.innerHTML = '<i class="fas fa-times-circle text-danger"></i> Erro no processamento';
+        stats.innerHTML = '';
+        preview.innerHTML = `<div class="alert alert-danger mb-0">${data.error}</div>`;
+    }
+
+    submitBtn.disabled = false;
+    clearFile();
+}
+
+// === Remoção Manual ===
+const manualTextarea = document.getElementById('manual-domains');
+manualTextarea.addEventListener('input', () => {
+    const lines = manualTextarea.value.split('\n').filter(l => l.trim());
+    document.getElementById('domain-counter').textContent = `${lines.length} domínio(s)`;
+});
+
+async function removeManual() {
+    const raw = manualTextarea.value;
+    const domains = raw.split('\n').map(l => l.trim()).filter(l => l);
+    const permanent = document.getElementById('manual-permanent').checked;
+    const resultEl = document.getElementById('manual-result');
+
+    if (!domains.length) {
+        resultEl.innerHTML = '<div class="alert alert-warning">Nenhum domínio informado.</div>';
+        return;
+    }
+
+    resultEl.innerHTML = '<div class="text-center"><div class="spinner-border text-danger"></div></div>';
+
+    try {
+        const resp = await fetch('/api/v1/admin/domains/remove-bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domains, permanent })
+        });
+        const data = await resp.json();
+
+        if (data.success) {
+            resultEl.innerHTML = `
+                <div class="alert alert-success">
+                    <strong><i class="fas fa-check"></i> Concluído!</strong><br>
+                    <span class="text-danger">Removidos: <strong>${data.removed}</strong></span> &nbsp;|&nbsp;
+                    <span class="text-warning">Não encontrados: <strong>${data.not_found}</strong></span>
+                    ${data.errors > 0 ? ` &nbsp;|&nbsp; <span class="text-danger">Erros: <strong>${data.errors}</strong></span>` : ''}
+                </div>`;
+            if (data.removed > 0) {
+                manualTextarea.value = '';
+                document.getElementById('domain-counter').textContent = '0 domínios';
+            }
+        } else {
+            resultEl.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+        }
+    } catch (e) {
+        resultEl.innerHTML = '<div class="alert alert-danger">Erro de comunicação com o servidor.</div>';
+    }
+}
+
+// === Histórico ===
+async function loadHistory() {
+    document.getElementById('history-loading').classList.remove('d-none');
+    document.getElementById('history-content').classList.add('d-none');
+
+    try {
+        const resp = await fetch('/api/v1/admin/history/removals?limit=50');
+        const data = await resp.json();
+
+        document.getElementById('history-loading').classList.add('d-none');
+        document.getElementById('history-content').classList.remove('d-none');
+
+        const tbody = document.getElementById('history-tbody');
+        const empty = document.getElementById('history-empty');
+
+        if (!data.removals || data.removals.length === 0) {
+            tbody.innerHTML = '';
+            empty.classList.remove('d-none');
+            return;
+        }
+
+        empty.classList.add('d-none');
+        tbody.innerHTML = data.removals.map(r => `
+            <tr class="history-row">
+                <td>
+                    <i class="fas fa-file-pdf text-danger me-1"></i>
+                    <span title="${r.original_filename}">${r.original_filename.length > 40 ? r.original_filename.substring(0, 40) + '...' : r.original_filename}</span>
+                </td>
+                <td class="text-center"><span class="badge bg-secondary">${r.domains_extracted}</span></td>
+                <td class="text-center"><span class="badge bg-danger">${r.domains_removed}</span></td>
+                <td class="text-center"><span class="badge bg-warning text-dark">${r.domains_not_found}</span></td>
+                <td><small>${r.uploaded_by || '-'}</small></td>
+                <td><small class="text-muted">${r.uploaded_at ? new Date(r.uploaded_at).toLocaleString('pt-BR') : '-'}</small></td>
+            </tr>`).join('');
+    } catch (e) {
+        document.getElementById('history-loading').classList.add('d-none');
+        document.getElementById('history-content').classList.remove('d-none');
+        document.getElementById('history-tbody').innerHTML = '<tr><td colspan="6" class="text-center text-danger">Erro ao carregar histórico.</td></tr>';
+    }
+}
+
+// Carregar histórico ao clicar na aba
+document.getElementById('history-tab').addEventListener('shown.bs.tab', loadHistory);
+</script>
+{% endblock %}

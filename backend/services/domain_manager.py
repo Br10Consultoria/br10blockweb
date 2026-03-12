@@ -6,10 +6,11 @@ BR10 Block Web - Domain Manager Service
 Serviço para gerenciamento de domínios bloqueados
 
 Autor: BR10 Team
-Versão: 3.0.0
-Data: 2026-02-08
+Versão: 3.1.0
+Data: 2026-03-12
 """
 
+import hashlib
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -18,6 +19,7 @@ from backend.config import Config
 from backend.models.domain import Domain
 from backend.models.domain_history import DomainHistory
 from backend.models.pdf_upload import PDFUpload
+from backend.models.pdf_removal import PDFRemoval
 from backend.services.pdf_extractor import PDFExtractor
 
 logger = logging.getLogger(__name__)
@@ -25,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 class DomainManager:
     """Serviço de gerenciamento de domínios"""
-    
+
     @staticmethod
     def add_domain(
         domain: str,
@@ -36,7 +38,7 @@ class DomainManager:
     ) -> Tuple[bool, str, Optional[Domain]]:
         """
         Adiciona um domínio
-        
+
         Returns:
             (sucesso, mensagem, domínio)
         """
@@ -55,7 +57,7 @@ class DomainManager:
                         performed_by=added_by
                     )
                     return True, "Domínio reativado com sucesso", existing
-            
+
             # Criar novo domínio
             new_domain = Domain.create(
                 domain=domain,
@@ -64,7 +66,7 @@ class DomainManager:
                 source_reference=source_reference,
                 notes=notes
             )
-            
+
             # Registrar no histórico
             DomainHistory.log_addition(
                 domain_id=new_domain.id,
@@ -72,14 +74,14 @@ class DomainManager:
                 performed_by=added_by,
                 source=source
             )
-            
+
             logger.info(f"Domínio adicionado: {domain} por {added_by}")
             return True, "Domínio adicionado com sucesso", new_domain
-        
+
         except Exception as e:
             logger.error(f"Erro ao adicionar domínio {domain}: {e}")
             return False, f"Erro ao adicionar domínio: {str(e)}", None
-    
+
     @staticmethod
     def add_domains_bulk(
         domains: List[str],
@@ -89,7 +91,7 @@ class DomainManager:
     ) -> Dict:
         """
         Adiciona múltiplos domínios
-        
+
         Returns:
             Dict com estatísticas da operação
         """
@@ -97,7 +99,7 @@ class DomainManager:
             # Filtrar domínios válidos
             valid_domains = [d.strip().lower() for d in domains if d.strip()]
             valid_domains = [d for d in valid_domains if PDFExtractor.validate_domain(d)]
-            
+
             # Adicionar em massa
             added, duplicated = Domain.bulk_create(
                 domains=valid_domains,
@@ -105,7 +107,7 @@ class DomainManager:
                 source=source,
                 source_reference=source_reference
             )
-            
+
             # Registrar no histórico (apenas os adicionados)
             if added > 0:
                 # Buscar domínios recém adicionados para registrar no histórico
@@ -118,9 +120,9 @@ class DomainManager:
                             performed_by=added_by,
                             source=source
                         )
-            
+
             logger.info(f"Adição em massa: {added} adicionados, {duplicated} duplicados")
-            
+
             return {
                 'success': True,
                 'total_submitted': len(valid_domains),
@@ -128,7 +130,7 @@ class DomainManager:
                 'duplicated': duplicated,
                 'invalid': len(domains) - len(valid_domains)
             }
-        
+
         except Exception as e:
             logger.error(f"Erro na adição em massa: {e}")
             return {
@@ -137,7 +139,7 @@ class DomainManager:
                 'added': 0,
                 'duplicated': 0
             }
-    
+
     @staticmethod
     def process_pdf_upload(
         file_path: Path,
@@ -145,8 +147,8 @@ class DomainManager:
         uploaded_by: Optional[str] = None
     ) -> Dict:
         """
-        Processa upload de PDF e extrai domínios
-        
+        Processa upload de PDF e extrai domínios para BLOQUEIO
+
         Returns:
             Dict com resultado do processamento
         """
@@ -154,7 +156,7 @@ class DomainManager:
             # Calcular hash e tamanho
             file_hash = PDFExtractor.calculate_file_hash(file_path)
             file_size = file_path.stat().st_size
-            
+
             # Verificar se já foi processado
             existing_upload = PDFUpload.get_by_hash(file_hash)
             if existing_upload and existing_upload.processed:
@@ -164,7 +166,7 @@ class DomainManager:
                     'error': 'Este arquivo já foi processado anteriormente',
                     'previous_upload': existing_upload.to_dict()
                 }
-            
+
             # Criar registro de upload
             pdf_upload = PDFUpload.create(
                 filename=file_path.name,
@@ -173,10 +175,10 @@ class DomainManager:
                 file_hash=file_hash,
                 uploaded_by=uploaded_by
             )
-            
+
             # Extrair domínios
             extraction_result = PDFExtractor.extract_domains(file_path)
-            
+
             if not extraction_result['success'] or not extraction_result['domains']:
                 pdf_upload.mark_error("Nenhum domínio encontrado no PDF")
                 return {
@@ -184,9 +186,9 @@ class DomainManager:
                     'error': 'Nenhum domínio encontrado no PDF',
                     'upload_id': pdf_upload.id
                 }
-            
+
             domains = extraction_result['domains']
-            
+
             # Adicionar domínios ao banco
             bulk_result = DomainManager.add_domains_bulk(
                 domains=domains,
@@ -194,16 +196,16 @@ class DomainManager:
                 source='pdf',
                 source_reference=original_filename
             )
-            
+
             # Atualizar registro de upload
             pdf_upload.mark_processed(
                 domains_extracted=len(domains),
                 domains_added=bulk_result['added'],
                 domains_duplicated=bulk_result['duplicated']
             )
-            
+
             logger.info(f"PDF processado: {original_filename} - {len(domains)} domínios extraídos")
-            
+
             return {
                 'success': True,
                 'upload_id': pdf_upload.id,
@@ -213,14 +215,14 @@ class DomainManager:
                 'domains_preview': PDFExtractor.preview_domains(domains),
                 'extraction_metadata': extraction_result['extraction_metadata']
             }
-        
+
         except Exception as e:
             logger.error(f"Erro ao processar PDF {original_filename}: {e}")
             return {
                 'success': False,
                 'error': str(e)
             }
-    
+
     @staticmethod
     def remove_domain(
         domain: str,
@@ -229,16 +231,16 @@ class DomainManager:
     ) -> Tuple[bool, str]:
         """
         Remove um domínio (soft ou hard delete)
-        
+
         Returns:
             (sucesso, mensagem)
         """
         try:
             domain_obj = Domain.get_by_domain(domain)
-            
+
             if not domain_obj:
                 return False, "Domínio não encontrado"
-            
+
             if permanent:
                 # Registrar antes de deletar
                 DomainHistory.log_removal(
@@ -259,11 +261,134 @@ class DomainManager:
                 )
                 logger.info(f"Domínio desativado: {domain}")
                 return True, "Domínio desativado"
-        
+
         except Exception as e:
             logger.error(f"Erro ao remover domínio {domain}: {e}")
             return False, f"Erro ao remover domínio: {str(e)}"
-    
+
+    @staticmethod
+    def remove_domains_bulk(
+        domains: List[str],
+        performed_by: Optional[str] = None,
+        permanent: bool = False
+    ) -> Dict:
+        """
+        Remove múltiplos domínios de uma vez.
+
+        Returns:
+            Dict com estatísticas: removed, not_found, errors
+        """
+        removed = 0
+        not_found = 0
+        errors = 0
+        removed_list: List[str] = []
+        not_found_list: List[str] = []
+
+        for domain in domains:
+            domain = domain.strip().lower()
+            if not domain:
+                continue
+            try:
+                success, message = DomainManager.remove_domain(
+                    domain=domain,
+                    performed_by=performed_by,
+                    permanent=permanent
+                )
+                if success:
+                    removed += 1
+                    removed_list.append(domain)
+                else:
+                    not_found += 1
+                    not_found_list.append(domain)
+            except Exception as e:
+                logger.error(f"Erro ao remover domínio {domain}: {e}")
+                errors += 1
+
+        return {
+            'success': True,
+            'removed': removed,
+            'not_found': not_found,
+            'errors': errors,
+            'removed_list': removed_list,
+            'not_found_list': not_found_list
+        }
+
+    @staticmethod
+    def process_pdf_removal(
+        file_path: Path,
+        original_filename: str,
+        uploaded_by: Optional[str] = None,
+        permanent: bool = False
+    ) -> Dict:
+        """
+        Processa um PDF e REMOVE os domínios encontrados da lista de bloqueio.
+
+        Returns:
+            Dict com resultado do processamento
+        """
+        try:
+            # Extrair domínios do PDF (reutiliza o mesmo extrator)
+            extraction_result = PDFExtractor.extract_domains(file_path)
+
+            if not extraction_result['success']:
+                return {
+                    'success': False,
+                    'error': extraction_result.get('error', 'Erro na extração')
+                }
+
+            domains = extraction_result['domains']
+
+            if not domains:
+                return {
+                    'success': False,
+                    'error': 'Nenhum domínio encontrado no PDF'
+                }
+
+            # Calcular hash do arquivo
+            file_hash = hashlib.sha256(file_path.read_bytes()).hexdigest()
+
+            # Remover domínios em lote
+            bulk_result = DomainManager.remove_domains_bulk(
+                domains=domains,
+                performed_by=uploaded_by,
+                permanent=permanent
+            )
+
+            # Registrar no histórico de remoções
+            PDFRemoval.create(
+                filename=file_path.name,
+                original_filename=original_filename,
+                file_size=file_path.stat().st_size,
+                file_hash=file_hash,
+                domains_extracted=len(domains),
+                domains_removed=bulk_result['removed'],
+                domains_not_found=bulk_result['not_found'],
+                uploaded_by=uploaded_by,
+                processed=True,
+                metadata=extraction_result.get('extraction_metadata', {})
+            )
+
+            logger.info(
+                f"PDF de remoção processado: {original_filename} - "
+                f"{len(domains)} extraídos, {bulk_result['removed']} removidos"
+            )
+
+            return {
+                'success': True,
+                'domains_extracted': len(domains),
+                'domains_removed': bulk_result['removed'],
+                'domains_not_found': bulk_result['not_found'],
+                'domains_preview': PDFExtractor.preview_domains(domains),
+                'extraction_metadata': extraction_result.get('extraction_metadata', {})
+            }
+
+        except Exception as e:
+            logger.error(f"Erro ao processar PDF de remoção {original_filename}: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     @staticmethod
     def export_to_file(
         file_path: Path,
@@ -272,13 +397,13 @@ class DomainManager:
     ) -> Tuple[bool, str]:
         """
         Exporta domínios para arquivo
-        
+
         Returns:
             (sucesso, mensagem)
         """
         try:
             domains = Domain.get_active_domains_list() if active_only else [d.domain for d in Domain.get_all(active_only=False)]
-            
+
             with open(file_path, 'w', encoding='utf-8') as f:
                 if format == 'txt':
                     f.write('\n'.join(domains))
@@ -289,32 +414,32 @@ class DomainManager:
                     f.write(f'; Generated: {Path.ctime(file_path)}\n\n')
                     for domain in domains:
                         f.write(f'{domain} CNAME .\n')
-            
+
             logger.info(f"Domínios exportados para: {file_path}")
             return True, f"{len(domains)} domínios exportados"
-        
+
         except Exception as e:
             logger.error(f"Erro ao exportar domínios: {e}")
             return False, f"Erro ao exportar: {str(e)}"
-    
+
     @staticmethod
     def sync_to_unbound() -> Tuple[bool, str]:
         """
         Sincroniza domínios com arquivo de zona do Unbound
-        
+
         Returns:
             (sucesso, mensagem)
         """
         try:
             zone_file = Config.UNBOUND_ZONE_FILE
-            
+
             # Exportar para arquivo de zona
             success, message = DomainManager.export_to_file(
                 file_path=zone_file,
                 active_only=True,
                 format='rpz'
             )
-            
+
             if success:
                 # Recarregar Unbound (se disponível)
                 try:
@@ -325,9 +450,9 @@ class DomainManager:
                 except Exception as e:
                     logger.warning(f"Não foi possível recarregar Unbound: {e}")
                     return True, f"{message} (Unbound não recarregado)"
-            
+
             return False, message
-        
+
         except Exception as e:
             logger.error(f"Erro ao sincronizar com Unbound: {e}")
             return False, f"Erro na sincronização: {str(e)}"
