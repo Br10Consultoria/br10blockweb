@@ -1,25 +1,23 @@
 #!/bin/bash
 # =============================================================================
-# BR10 Dashboard - Deploy Rápido para Debian 12
+# BR10 Dashboard - Deploy para Debian 12 (Unbound no host)
 # =============================================================================
+# Arquitetura:
+#   - Unbound DNS: roda NO HOST (instalado via apt-get install unbound)
+#   - Sincronização: roda NO HOST via cron a cada 5 minutos
+#   - Redis + Dashboard: containers Docker
+#
 # Uso:
 #   sudo bash deploy_debian12.sh
 #
 # Pré-requisitos:
 #   - Debian 12 (Bookworm)
 #   - Docker + Docker Compose instalados
-#   - Unbound instalado (se usar modo nativo, não Docker)
 #   - IP do servidor BR10 Block Web
 #   - API Key gerada no painel (Clientes DNS → Novo Cliente)
-#
-# O que este script faz:
-#   1. Cria o arquivo .env com as configurações fornecidas
-#   2. Sobe os containers via docker compose
-#   3. Aguarda a inicialização e exibe o resumo
 # =============================================================================
 set -euo pipefail
 
-# Cores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -27,11 +25,19 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SYNC_SCRIPT="${SCRIPT_DIR}/scripts/br10block_client.sh"
+UNBOUND_CONF_DIR="/etc/unbound/unbound.conf.d"
+UNBOUND_RPZ_CONF="${UNBOUND_CONF_DIR}/br10block-rpz.conf"
+UNBOUND_ZONE_FILE="/var/lib/unbound/br10block-rpz.zone"
+BR10API_DIR="/var/lib/br10api"
+SYNC_DATA_DIR="/opt/br10dashboard/data"
+SYNC_LOG="/var/log/br10block_client.log"
 
 banner() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║       BR10 Dashboard — Deploy Debian 12                  ║${NC}"
+    echo -e "${CYAN}║       (Unbound no host + cron de sincronização)          ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -52,27 +58,81 @@ check_docker() {
     success "Docker $(docker --version | cut -d' ' -f3 | tr -d ',') disponível"
 }
 
-check_port_53() {
-    step "Verificando porta 53"
-    if ss -tulnp 2>/dev/null | grep -q ':53 '; then
-        warn "Porta 53 em uso. Verificando o processo..."
-        PROC=$(ss -tulnp 2>/dev/null | grep ':53 ' | head -1)
-        echo "  $PROC"
-
-        # Desativar systemd-resolved se for o culpado
-        if echo "$PROC" | grep -q "systemd-resolve"; then
-            warn "Desativando systemd-resolved para liberar porta 53..."
-            systemctl stop systemd-resolved
-            systemctl disable systemd-resolved
-            # Configurar DNS temporário
-            echo "nameserver 8.8.8.8" > /etc/resolv.conf
-            success "systemd-resolved desativado"
-        else
-            warn "Outro processo usa a porta 53. O Unbound (container) pode não iniciar."
-            warn "Verifique com: ss -tulnp | grep ':53'"
-        fi
+install_unbound() {
+    step "Verificando Unbound"
+    if command -v unbound &>/dev/null; then
+        success "Unbound já instalado: $(unbound -V 2>&1 | head -1)"
     else
-        success "Porta 53 disponível"
+        echo "  Instalando Unbound..."
+        apt-get update -qq
+        apt-get install -y unbound
+        success "Unbound instalado"
+    fi
+
+    # Verificar unbound-control
+    if command -v unbound-control &>/dev/null; then
+        success "unbound-control disponível"
+    else
+        warn "unbound-control não encontrado. Tentando instalar..."
+        apt-get install -y unbound || true
+    fi
+}
+
+configure_unbound_rpz() {
+    step "Configurando Unbound com RPZ"
+
+    # Criar diretórios necessários
+    mkdir -p "${UNBOUND_CONF_DIR}"
+    mkdir -p "${BR10API_DIR}"
+    mkdir -p "$(dirname "${UNBOUND_ZONE_FILE}")"
+
+    # Criar arquivo de zona RPZ vazio se não existir
+    if [[ ! -f "${UNBOUND_ZONE_FILE}" ]]; then
+        cat > "${UNBOUND_ZONE_FILE}" << 'EOF'
+; BR10 Block Web - RPZ Zone File (vazio - aguardando primeira sincronização)
+$ORIGIN br10block.rpz.
+$TTL 60
+@ IN SOA localhost. root.localhost. (1 3600 900 604800 60)
+@ IN NS localhost.
+EOF
+        chown unbound:unbound "${UNBOUND_ZONE_FILE}" 2>/dev/null || true
+        chmod 644 "${UNBOUND_ZONE_FILE}"
+        success "Arquivo de zona RPZ criado (vazio)"
+    else
+        success "Arquivo de zona RPZ já existe"
+    fi
+
+    # Criar configuração RPZ para Unbound
+    cat > "${UNBOUND_RPZ_CONF}" << EOF
+# BR10 Block Web - Configuração RPZ
+# Gerado em $(date '+%Y-%m-%d %H:%M:%S')
+server:
+    # Aceitar consultas de qualquer IP (rede interna)
+    interface: 0.0.0.0
+    access-control: 0.0.0.0/0 allow
+
+    # RPZ - Response Policy Zone
+    rpz:
+        name: "br10block.rpz"
+        zonefile: "${UNBOUND_ZONE_FILE}"
+        rpz-log: yes
+        rpz-log-name: "br10block"
+EOF
+
+    # Verificar se a configuração é válida
+    if unbound-checkconf 2>/dev/null; then
+        success "Configuração do Unbound válida"
+    else
+        warn "Verificação da configuração falhou. Verifique /etc/unbound/unbound.conf"
+    fi
+
+    # Reiniciar Unbound para aplicar RPZ
+    systemctl restart unbound
+    sleep 2
+    if systemctl is-active --quiet unbound; then
+        success "Unbound reiniciado com suporte a RPZ"
+    else
+        warn "Unbound não iniciou corretamente. Verifique: journalctl -u unbound -n 20"
     fi
 }
 
@@ -82,7 +142,7 @@ setup_env() {
     if [[ -f "${SCRIPT_DIR}/.env" ]]; then
         warn "Arquivo .env já existe."
         read -rp "  Reconfigurar? [s/N]: " RECONF
-        [[ "${RECONF,,}" == "s" ]] || { success "Mantendo .env existente"; return; }
+        [[ "${RECONF,,}" == "s" ]] || { success "Mantendo .env existente"; source "${SCRIPT_DIR}/.env"; return; }
     fi
 
     echo ""
@@ -127,9 +187,55 @@ EOF
     fi
 }
 
+setup_sync_script() {
+    step "Configurando script de sincronização no host"
+
+    # Criar diretório de dados
+    mkdir -p "${SYNC_DATA_DIR}"
+    mkdir -p "${BR10API_DIR}"
+    touch "${SYNC_LOG}"
+
+    # Tornar o script executável
+    chmod +x "${SYNC_SCRIPT}"
+
+    # Criar wrapper com as variáveis de ambiente configuradas
+    source "${SCRIPT_DIR}/.env"
+
+    cat > /usr/local/bin/br10block-sync << EOF
+#!/bin/bash
+# BR10 Block - Wrapper de sincronização com variáveis de ambiente
+export BR10_SERVER_URL="${BR10_SERVER_URL}"
+export BR10_API_KEY="${BR10_API_KEY}"
+export BR10_FORMAT="rpz"
+export UNBOUND_ZONE_FILE="${UNBOUND_ZONE_FILE}"
+export BLOCKED_DOMAINS_FILE="${BR10API_DIR}/blocked_domains.txt"
+export DATA_DIR="${SYNC_DATA_DIR}"
+export LOG_FILE="${SYNC_LOG}"
+export REDIS_HOST="127.0.0.1"
+export REDIS_PORT="6379"
+export HTTP_TIMEOUT="30"
+export MAX_RETRIES="3"
+
+exec "${SYNC_SCRIPT}" "\$@"
+EOF
+    chmod +x /usr/local/bin/br10block-sync
+    success "Wrapper /usr/local/bin/br10block-sync criado"
+
+    # Configurar cron (a cada 5 minutos)
+    CRON_LINE="*/5 * * * * root /usr/local/bin/br10block-sync >> ${SYNC_LOG} 2>&1"
+    CRON_FILE="/etc/cron.d/br10block-sync"
+
+    echo "${CRON_LINE}" > "${CRON_FILE}"
+    chmod 644 "${CRON_FILE}"
+    success "Cron configurado: ${CRON_FILE} (a cada 5 minutos)"
+}
+
 build_and_start() {
-    step "Construindo e iniciando containers"
+    step "Construindo e iniciando containers (Redis + Dashboard)"
     cd "${SCRIPT_DIR}"
+
+    # Parar containers antigos se existirem
+    docker compose down --remove-orphans 2>/dev/null || true
 
     echo "  Fazendo build da imagem do dashboard..."
     docker compose build --no-cache
@@ -145,15 +251,14 @@ build_and_start() {
 }
 
 force_first_sync() {
-    step "Executando primeira sincronização"
-    cd "${SCRIPT_DIR}"
+    step "Executando primeira sincronização no host"
 
-    echo "  Aguardando Unbound ficar pronto (15s)..."
-    sleep 15
-
-    docker compose exec -T sync /usr/local/bin/br10block_client.sh --force && \
-        success "Primeira sincronização concluída!" || \
-        warn "Sincronização inicial falhou. Execute manualmente: docker compose exec sync /usr/local/bin/br10block_client.sh --force"
+    if /usr/local/bin/br10block-sync --force; then
+        success "Primeira sincronização concluída!"
+    else
+        warn "Sincronização inicial falhou. Execute manualmente: /usr/local/bin/br10block-sync --force"
+        warn "Verifique o log: tail -f ${SYNC_LOG}"
+    fi
 }
 
 show_summary() {
@@ -167,16 +272,17 @@ show_summary() {
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "  ${CYAN}Dashboard:${NC}      http://${SERVER_IP}:${DASHBOARD_PORT:-8085}"
-    echo -e "  ${CYAN}DNS (Unbound):${NC}  ${SERVER_IP}:53"
+    echo -e "  ${CYAN}DNS (Unbound):${NC}  ${SERVER_IP}:53  (serviço do host)"
     echo -e "  ${CYAN}Servidor BR10:${NC}  ${BR10_SERVER_URL:-não configurado}"
+    echo -e "  ${CYAN}Sincronização:${NC}  a cada 5 minutos via cron"
     echo ""
     echo -e "  ${CYAN}Comandos úteis:${NC}"
+    echo -e "    systemctl status unbound                   # status do DNS"
+    echo -e "    /usr/local/bin/br10block-sync --force      # forçar sincronização"
+    echo -e "    tail -f ${SYNC_LOG}    # log de sincronização"
     echo -e "    cd ${SCRIPT_DIR}"
     echo -e "    docker compose ps                          # status dos containers"
-    echo -e "    docker compose logs -f sync                # logs do sincronizador"
     echo -e "    docker compose logs -f dashboard           # logs do dashboard"
-    echo -e "    docker compose exec sync /usr/local/bin/br10block_client.sh --force"
-    echo -e "                                               # forçar sincronização"
     echo ""
     echo -e "  ${YELLOW}Configure os clientes da rede para usar ${SERVER_IP} como DNS${NC}"
     echo ""
@@ -186,8 +292,10 @@ main() {
     banner
     check_root
     check_docker
-    check_port_53
+    install_unbound
+    configure_unbound_rpz
     setup_env
+    setup_sync_script
     build_and_start
     force_first_sync
     show_summary

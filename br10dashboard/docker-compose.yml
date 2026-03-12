@@ -1,44 +1,22 @@
-version: '3.9'
-
 # =============================================================================
 # BR10 Dashboard - Docker Compose (Cliente DNS)
 # =============================================================================
+# Arquitetura:
+#   - Unbound DNS: roda NO HOST (instalado via apt-get install unbound)
+#   - Sincronização: roda NO HOST via cron (scripts/br10block_client.sh)
+#   - Redis: container (cache do dashboard)
+#   - Dashboard: container (interface web na porta 8085)
+#
 # Uso rápido:
 #   1. cp .env.example .env        (edite BR10_SERVER_URL e BR10_API_KEY!)
-#   2. docker compose up -d        (sobe todos os containers)
+#   2. sudo bash deploy_debian12.sh
 #
-# Portas expostas no host:
-#   - 8085 -> Dashboard web (interface de visualização)
-#   - 53   -> Unbound DNS (TCP + UDP)
-#
-# IMPORTANTE:
-#   - Defina BR10_SERVER_URL=http://IP_DO_SERVIDOR:8084 no .env
-#   - Defina BR10_API_KEY=SUA_KEY_AQUI no .env
-#   - A sincronização ocorre automaticamente a cada 5 minutos
+# Portas:
+#   - 8085 -> Dashboard web
+#   - 53   -> Unbound DNS (no host, não container)
 # =============================================================================
 
 services:
-
-  # Unbound DNS Server
-  unbound:
-    image: mvance/unbound:latest
-    container_name: br10-unbound
-    volumes:
-      - ./unbound/unbound.conf:/opt/unbound/etc/unbound/unbound.conf:ro
-      - unbound-zones:/var/lib/unbound
-      - shared-data:/var/lib/br10api
-    ports:
-      - "53:53/tcp"
-      - "53:53/udp"
-    networks:
-      - br10-net
-    healthcheck:
-      test: ["CMD", "dig", "@127.0.0.1", "google.com", "+short"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
-    restart: unless-stopped
 
   # Redis (cache do dashboard)
   redis:
@@ -54,47 +32,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    restart: unless-stopped
-
-  # Sincronizador (executa br10block_client.sh a cada 5 minutos)
-  sync:
-    image: alpine:3.19
-    container_name: br10-sync
-    environment:
-      BR10_SERVER_URL: ${BR10_SERVER_URL:-http://SEU_SERVIDOR:8084}
-      BR10_API_KEY: ${BR10_API_KEY:-SUA_API_KEY}
-      BR10_FORMAT: "rpz"
-      UNBOUND_ZONE_FILE: "/var/lib/unbound/br10block-rpz.zone"
-      BLOCKED_DOMAINS_FILE: "/var/lib/br10api/blocked_domains.txt"
-      DATA_DIR: "/data"
-      REDIS_HOST: "redis"
-      REDIS_PORT: "6379"
-      HTTP_TIMEOUT: "30"
-      MAX_RETRIES: "3"
-    volumes:
-      - ./scripts/br10block_client.sh:/usr/local/bin/br10block_client.sh:ro
-      - unbound-zones:/var/lib/unbound
-      - shared-data:/var/lib/br10api
-      - sync-data:/data
-    networks:
-      - br10-net
-    depends_on:
-      - redis
-      - unbound
-    command: >
-      sh -c "
-        apk add --no-cache bash curl jq redis &&
-        chmod +x /usr/local/bin/br10block_client.sh &&
-        echo 'Aguardando Unbound inicializar...' &&
-        sleep 15 &&
-        echo 'Executando primeira sincronizacao...' &&
-        /usr/local/bin/br10block_client.sh --force || true &&
-        echo 'Loop de sincronizacao a cada 5 minutos...' &&
-        while true; do
-          sleep 300
-          /usr/local/bin/br10block_client.sh || true
-        done
-      "
     restart: unless-stopped
 
   # Dashboard Web
@@ -121,7 +58,8 @@ services:
       - dashboard-config:/opt/br10dashboard/config
       - dashboard-logs:/opt/br10dashboard/logs
       - dashboard-data:/opt/br10dashboard/data
-      - shared-data:/var/lib/br10api:ro
+      # Monta o diretório do host para ler a lista de domínios gerada pelo cron
+      - /var/lib/br10api:/var/lib/br10api:ro
     ports:
       - "${DASHBOARD_PORT:-8085}:8085"
     networks:
@@ -142,10 +80,7 @@ networks:
     driver: bridge
 
 volumes:
-  unbound-zones:
-  shared-data:
   redis-data:
-  sync-data:
   dashboard-config:
   dashboard-logs:
   dashboard-data:
