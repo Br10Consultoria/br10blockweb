@@ -4,8 +4,9 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=America/Bahia
 
-# Instalar dependências do sistema (sem systemctl — não funciona em container)
+# Instalar dependências do sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     dnsutils \
@@ -13,6 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     net-tools \
     iproute2 \
     procps \
+    tzdata \
+    && ln -sf /usr/share/zoneinfo/America/Bahia /etc/localtime \
+    && echo "America/Bahia" > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 # Criar usuário não-root

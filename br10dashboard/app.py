@@ -1161,65 +1161,46 @@ def load_history_data(limit=30):
         return []
 
 def get_unbound_stats():
-    """Obtem estatisticas do servidor Unbound"""
+    """Obtem estatisticas do Unbound via Redis (populado pelo unbound_redis_stats.sh no host)"""
+    stats = {
+        "cache_hits": 0,
+        "cache_misses": 0,
+        "queries": 0,
+        "uptime": "Desconhecido",
+        "cache_hit_ratio": "0%",
+        "ipv4_queries": 0,
+        "ipv6_queries": 0,
+        "ipv4_hit_pct": "0.0%",
+        "ipv6_hit_pct": "0.0%",
+        "rpz_hits": 0,
+        "unbound_status": "down",
+        "response_times": {}
+    }
     try:
-        stats = {
-            "cache_hits": 0,
-            "cache_misses": 0,
-            "queries": 0,
-            "uptime": "Desconhecido",
-            "cache_hit_ratio": "0%",
-            "response_times": {}
-        }
-        
-        # Verificar se o unbound-control esta disponivel
-        unbound_control = "/usr/sbin/unbound-control"
-        if not os.path.exists(unbound_control):
-            unbound_control = "/usr/bin/unbound-control"
-            if not os.path.exists(unbound_control):
-                logger.warning("unbound-control nao encontrado")
-                return stats
-        
-        # Executar unbound-control stats
-        import subprocess
-        try:
-            output = subprocess.check_output([unbound_control, "stats"], universal_newlines=True)
-            
-            # Analisar a saida
-            for line in output.splitlines():
-                if "total.num.queries=" in line:
-                    stats["queries"] = int(line.split("=")[1])
-                elif "total.num.cachehits=" in line:
-                    stats["cache_hits"] = int(line.split("=")[1])
-                elif "total.num.cachemiss=" in line:
-                    stats["cache_misses"] = int(line.split("=")[1])
-                elif line.startswith("histogram."):
-                    parts = line.split("=")
-                    if len(parts) == 2:
-                        time_range = parts[0].replace("histogram.", "")
-                        count = parts[1]
-                        if int(count) > 0:
-                            stats["response_times"][time_range] = count
-            
-            # Calcular uptime
-            uptime_output = subprocess.check_output([unbound_control, "status"], universal_newlines=True)
-            for line in uptime_output.splitlines():
-                if "uptime:" in line:
-                    stats["uptime"] = line.split("uptime:")[1].strip()
-                    break
-            
-            # Calcular taxa de hit de cache
-            if stats["queries"] > 0:
-                hit_ratio = (stats["cache_hits"] / stats["queries"]) * 100
-                stats["cache_hit_ratio"] = f"{hit_ratio:.2f}%"
-        
-        except subprocess.SubprocessError as e:
-            logger.error(f"Erro ao executar unbound-control: {e}")
-        
-        return stats
+        if redis_client is None:
+            logger.warning("Redis nao disponivel para leitura de stats do Unbound")
+            return stats
+        raw = redis_client.hgetall("unbound:stats:latest")
+        if not raw:
+            logger.info("Nenhuma estatistica do Unbound no Redis ainda (aguardando primeiro cron)")
+            return stats
+        stats["queries"]        = int(raw.get("total_queries", 0))
+        stats["cache_hits"]     = int(raw.get("cache_hits", 0))
+        stats["cache_misses"]   = int(raw.get("cache_miss", 0))
+        stats["ipv4_queries"]   = int(raw.get("ipv4_queries", 0))
+        stats["ipv6_queries"]   = int(raw.get("ipv6_queries", 0))
+        stats["rpz_hits"]       = int(raw.get("rpz_hits", 0))
+        stats["uptime"]         = raw.get("uptime", "Desconhecido")
+        stats["unbound_status"] = raw.get("unbound_status", "down")
+        hit_ratio_raw           = raw.get("hit_ratio", "0.00")
+        stats["cache_hit_ratio"] = f"{hit_ratio_raw}%"
+        ipv4_pct                = raw.get("ipv4_hit_pct", "0.0")
+        ipv6_pct                = raw.get("ipv6_hit_pct", "0.0")
+        stats["ipv4_hit_pct"]   = f"{ipv4_pct}%"
+        stats["ipv6_hit_pct"]   = f"{ipv6_pct}%"
     except Exception as e:
-        logger.error(f"Erro ao obter estatisticas do Unbound: {e}")
-        return stats
+        logger.error(f"Erro ao ler stats do Unbound no Redis: {e}")
+    return stats
         
 def load_system_logs(log_type='all', log_level='all', search=''):
     """Carrega logs do sistema baseado em filtros"""

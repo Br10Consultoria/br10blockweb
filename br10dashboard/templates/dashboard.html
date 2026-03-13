@@ -350,11 +350,18 @@
                 $('#total-domains').text(data.blocked_domains_count.toLocaleString());
                 $('#cache-hit-ratio').text(data.unbound.cache_hit_ratio);
                 $('#total-queries').text(parseInt(data.unbound.queries).toLocaleString());
-                
+
+                // IPv4/IPv6 no card de distribuição
+                var ipv4p = data.unbound.ipv4_hit_pct || '0.0%';
+                var ipv6p = data.unbound.ipv6_hit_pct || '0.0%';
+                var ipv4q = parseInt(data.unbound.ipv4_queries || 0).toLocaleString();
+                var ipv6q = parseInt(data.unbound.ipv6_queries || 0).toLocaleString();
+                $('#ip-distribution').html('<div class="ip-cache-stats"><div>IPv4: ' + ipv4p + ' hit (' + ipv4q + ')</div><div>IPv6: ' + ipv6p + ' hit (' + ipv6q + ')</div></div>');
+
                 $('#dns-uptime').text(data.unbound.uptime);
                 $('#dns-cache-hits').text(parseInt(data.unbound.cache_hits).toLocaleString());
                 $('#dns-cache-misses').text(parseInt(data.unbound.cache_misses).toLocaleString());
-                
+
                 renderResponseTimesChart(data.unbound.response_times);
             },
             error: function(xhr, status, error) {

@@ -244,7 +244,29 @@ EOF
 
     echo "${CRON_LINE}" > "${CRON_FILE}"
     chmod 644 "${CRON_FILE}"
-    success "Cron configurado: ${CRON_FILE} (a cada 5 minutos)"
+    success "Cron de sync configurado: ${CRON_FILE} (a cada 5 minutos)"
+
+    # Instalar script de estatísticas do Unbound
+    STATS_SCRIPT="${SCRIPT_DIR}/scripts/unbound_redis_stats.sh"
+    if [[ -f "${STATS_SCRIPT}" ]]; then
+        cp "${STATS_SCRIPT}" /usr/local/bin/br10block-stats
+        chmod +x /usr/local/bin/br10block-stats
+        # Wrapper com variáveis do Redis
+        cat > /usr/local/bin/br10block-stats-run << 'STATSEOF'
+#!/bin/bash
+export REDIS_HOST=127.0.0.1
+export REDIS_PORT=6379
+/usr/local/bin/br10block-stats
+STATSEOF
+        chmod +x /usr/local/bin/br10block-stats-run
+        # Cron a cada 2 minutos
+        STATS_CRON_FILE="/etc/cron.d/br10block-stats"
+        echo "*/2 * * * * root /usr/local/bin/br10block-stats-run >> /var/log/br10_unbound_redis.log 2>&1" > "${STATS_CRON_FILE}"
+        chmod 644 "${STATS_CRON_FILE}"
+        success "Cron de stats do Unbound configurado (a cada 2 minutos)"
+    else
+        warn "Script de stats não encontrado: ${STATS_SCRIPT}"
+    fi
 }
 
 build_and_start() {
