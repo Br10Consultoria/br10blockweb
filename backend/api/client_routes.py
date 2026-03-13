@@ -220,6 +220,7 @@ def complete_sync():
         message = data.get('message', '')
         error_details = data.get('error_details')
         duration_seconds = data.get('duration_seconds', 0)
+        unbound_status = data.get('unbound_status')  # ok, down, unknown
         
         # Buscar sincronização
         if sync_id:
@@ -236,8 +237,8 @@ def complete_sync():
             else:
                 logger.warning(f"Sync ID inválido ou não pertence ao cliente: {sync_id}")
         
-        # Atualizar cliente
-        client.update_sync_status(domains_applied, status)
+        # Atualizar cliente com status granulares
+        client.update_sync_status(domains_applied, status, unbound_status=unbound_status)
         
         response = {
             'success': True,

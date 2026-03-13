@@ -83,7 +83,8 @@
                         <tr>
                             <th>Nome</th>
                             <th>IP</th>
-                            <th>Status</th>
+                            <th>Sync</th>
+                            <th>Unbound</th>
                             <th>Última Sync</th>
                             <th>Domínios Aplicados</th>
                             <th>API Key</th>
@@ -103,17 +104,30 @@
                                 <code>{{ client.ip_address or '-' }}</code>
                             </td>
                             <td>
-                                {% if client.status == 'online' %}
-                                    <span class="badge bg-success"><i class="fas fa-circle"></i> Online</span>
-                                {% elif client.status == 'syncing' %}
+                                {% set sync_st = client.metadata.get('sync_status', '') if client.metadata else '' %}
+                                {% if client.status == 'syncing' %}
                                     <span class="badge bg-warning text-dark"><i class="fas fa-sync fa-spin"></i> Sincronizando</span>
-                                {% elif client.status == 'error' %}
-                                    <span class="badge bg-danger"><i class="fas fa-exclamation-circle"></i> Erro</span>
+                                {% elif sync_st == 'ok' %}
+                                    <span class="badge bg-success"><i class="fas fa-check-circle"></i> OK</span>
+                                {% elif sync_st == 'error' %}
+                                    <span class="badge bg-danger"><i class="fas fa-times-circle"></i> Erro</span>
+                                {% elif client.last_sync %}
+                                    <span class="badge bg-success"><i class="fas fa-check-circle"></i> OK</span>
                                 {% else %}
-                                    <span class="badge bg-secondary"><i class="fas fa-circle"></i> Offline</span>
+                                    <span class="badge bg-secondary"><i class="fas fa-minus-circle"></i> Nunca</span>
                                 {% endif %}
                                 {% if not client.active %}
                                     <span class="badge bg-dark ms-1">Inativo</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% set unbound_st = client.metadata.get('unbound_status', '') if client.metadata else '' %}
+                                {% if unbound_st == 'ok' %}
+                                    <span class="badge bg-success"><i class="fas fa-server"></i> Online</span>
+                                {% elif unbound_st == 'down' %}
+                                    <span class="badge bg-danger"><i class="fas fa-server"></i> Down</span>
+                                {% else %}
+                                    <span class="badge bg-secondary"><i class="fas fa-server"></i> Desconhecido</span>
                                 {% endif %}
                             </td>
                             <td>

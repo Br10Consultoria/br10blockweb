@@ -234,12 +234,35 @@ class DNSClient:
             status='online'
         )
     
-    def update_sync_status(self, domains_count: int, status: str = 'success') -> bool:
+    def update_sync_status(self, domains_count: int, status: str = 'success', unbound_status: str = None) -> bool:
         """Atualiza status de sincronização"""
+        # Determinar status geral e status granulares
+        if status == 'success':
+            client_status = 'online'
+            sync_ok = True
+            unbound_ok = True
+        elif status == 'partial':
+            client_status = 'online'  # sincronizou, mas Unbound não recarregou
+            sync_ok = True
+            unbound_ok = False
+        else:  # failed
+            client_status = 'error'
+            sync_ok = False
+            unbound_ok = False
+        
+        # Atualizar metadata com status granulares
+        current_metadata = self.metadata or {}
+        current_metadata['sync_status'] = 'ok' if sync_ok else 'error'
+        current_metadata['unbound_status'] = 'ok' if unbound_ok else 'down'
+        if unbound_status:
+            current_metadata['unbound_status'] = unbound_status
+        current_metadata['last_sync_result'] = status
+        
         return self.update(
             last_sync=datetime.now(),
             domains_count=domains_count,
-            status='online' if status == 'success' else 'error'
+            status=client_status,
+            metadata=current_metadata
         )
     
     def regenerate_api_key(self) -> str:

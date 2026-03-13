@@ -115,6 +115,9 @@ RPZEOF
 # BR10 Block Web - Configuração RPZ
 # Gerado em $(date '+%Y-%m-%d %H:%M:%S')
 server:
+    # Modulo respip OBRIGATORIO para RPZ
+    module-config: "respip validator iterator"
+
     # Aceitar consultas de qualquer IP (rede interna)
     access-control: 0.0.0.0/0 allow
 

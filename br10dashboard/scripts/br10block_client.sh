@@ -472,6 +472,17 @@ update_redis_stats() {
     log_debug "Estatísticas Redis atualizadas"
 }
 
+# Verificar status do Unbound
+check_unbound_status() {
+    if systemctl is-active --quiet unbound 2>/dev/null; then
+        echo "ok"
+    elif unbound-control status &>/dev/null 2>&1; then
+        echo "ok"
+    else
+        echo "down"
+    fi
+}
+
 # Iniciar sincronização no servidor (obtém sync_id para rastreamento)
 start_sync_on_server() {
     local start_url="${BR10_SERVER_URL}/api/v1/client/sync/start"
@@ -504,13 +515,17 @@ notify_server() {
     local duration="$3"
     local sync_id="${4:-}"
     
+    # Verificar status atual do Unbound
+    local unbound_st
+    unbound_st=$(check_unbound_status)
+    
     local notify_url="${BR10_SERVER_URL}/api/v1/client/sync/complete"
     local payload
     
     if [[ -n "${sync_id}" ]]; then
-        payload="{\"sync_id\": ${sync_id}, \"domains_applied\": ${domains_applied}, \"status\": \"${status}\", \"duration_seconds\": ${duration}, \"message\": \"Sincronização concluída pelo cliente\"}"
+        payload="{\"sync_id\": ${sync_id}, \"domains_applied\": ${domains_applied}, \"status\": \"${status}\", \"duration_seconds\": ${duration}, \"unbound_status\": \"${unbound_st}\", \"message\": \"Sincronização concluída pelo cliente\"}"
     else
-        payload="{\"domains_applied\": ${domains_applied}, \"status\": \"${status}\", \"duration_seconds\": ${duration}, \"message\": \"Sincronização concluída pelo cliente\"}"
+        payload="{\"domains_applied\": ${domains_applied}, \"status\": \"${status}\", \"duration_seconds\": ${duration}, \"unbound_status\": \"${unbound_st}\", \"message\": \"Sincronização concluída pelo cliente\"}"
     fi
     
     log_debug "Notificando servidor sobre sincronização..."
