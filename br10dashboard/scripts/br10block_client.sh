@@ -79,6 +79,9 @@ DRY_RUN=false
 DEBUG=false
 START_TIME=$(date +%s)
 SCRIPT_VERSION="3.0.0"
+SYNC_ID=""
+DOMAIN_COUNT=0
+UNBOUND_RELOAD_FAILED=false
 
 # Cores para output
 RED='\033[0;31m'
@@ -121,6 +124,14 @@ log_debug()   { log "DEBUG"   "$@"; }
 
 die() {
     log_error "$*"
+    # Notificar servidor sobre falha (para sair do estado 'syncing')
+    if [[ -n "${SYNC_ID:-}" ]]; then
+        local end_time
+        end_time=$(date +%s)
+        local duration=$((end_time - START_TIME))
+        notify_server "${DOMAIN_COUNT:-0}" "failed" "${duration}" "${SYNC_ID}" || true
+        log_debug "Servidor notificado sobre falha"
+    fi
     exit 1
 }
 
@@ -384,14 +395,12 @@ apply_rpz_to_unbound() {
             if systemctl reload unbound 2>/dev/null || systemctl restart unbound 2>/dev/null; then
                 log_success "Unbound reiniciado via systemctl"
             else
-                log_error "Falha ao recarregar Unbound"
-                # Restaurar backup
-                if [[ -f "${UNBOUND_ZONE_FILE}.bak" ]]; then
-                    cp "${UNBOUND_ZONE_FILE}.bak" "${UNBOUND_ZONE_FILE}"
-                    unbound-control reload 2>/dev/null || true
-                    log_warn "Backup restaurado"
-                fi
-                return 1
+                log_warn "Falha ao recarregar Unbound — arquivo de zona salvo mas não aplicado ainda"
+                # Não restaurar backup: o arquivo de zona foi salvo corretamente
+                # O Unbound vai usar na próxima vez que reiniciar
+                # Retornar 0 (sucesso parcial) para que o servidor seja notificado
+                UNBOUND_RELOAD_FAILED=true
+                return 0
             fi
         fi
     fi
@@ -677,7 +686,12 @@ main() {
     update_redis_stats "${DOMAIN_COUNT}" "success"
     
     # Notificar servidor
-    notify_server "${DOMAIN_COUNT}" "success" "${duration}" "${SYNC_ID:-}"
+    local final_status="success"
+    if [[ "${UNBOUND_RELOAD_FAILED}" == "true" ]]; then
+        final_status="partial"
+        log_warn "Sincronização parcial: lista salva mas Unbound não recarregado"
+    fi
+    notify_server "${DOMAIN_COUNT}" "${final_status}" "${duration}" "${SYNC_ID:-}"
     
     # Limpar arquivo temporário
     rm -f "${TMP_FILE}"
@@ -691,7 +705,7 @@ main() {
 }
 
 # Capturar erros não tratados
-trap 'log_error "Erro inesperado na linha $LINENO. Código: $?"; update_redis_stats "0" "unexpected_error"; exit 1' ERR
+trap 'log_error "Erro inesperado na linha $LINENO. Código: $?"; update_redis_stats "0" "unexpected_error"; [[ -n "${SYNC_ID:-}" ]] && notify_server "0" "failed" "$(($(date +%s) - START_TIME))" "${SYNC_ID}" || true; exit 1' ERR
 
 # Executar
 main "$@"
