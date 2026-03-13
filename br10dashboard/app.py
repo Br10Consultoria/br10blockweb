@@ -205,13 +205,7 @@ BR10_SERVER_URL = os.getenv("BR10_SERVER_URL", "")
 BR10_API_KEY = os.getenv("BR10_API_KEY", "")
 BR10_SYNC_SCRIPT = os.getenv("BR10_SYNC_SCRIPT", os.path.join(BASE_DIR, "scripts/br10block_client.sh"))
 
-# Configuracao do app Flask
-app = Flask(__name__)
-app.secret_key = os.urandom(24)  # Chave para sessoes
-app.config['SESSION_TYPE'] = 'filesystem'
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
-app.config['PREFERRED_URL_SCHEME'] = 'https'
-csrf = CSRFProtect(app)
+# Configuracao do app Flask (segunda inicializacao removida - usando Config acima)
 
 # Configuracao de logging
 logging.basicConfig(
@@ -222,9 +216,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger('dashboard')
 
-# Configuracao do Redis
-redis_client = redis.Redis(host='127.0.0.1', port=6379, db=0, decode_responses=True)
-CACHE_TTL = 300  # 5 minutos em segundos
+# Configuracao do Redis (usa variaveis de ambiente via Config)
+_redis_host = os.getenv('REDIS_HOST', '127.0.0.1')
+_redis_port = int(os.getenv('REDIS_PORT', 6379))
+_redis_db   = int(os.getenv('REDIS_DB', 0))
+try:
+    redis_client = redis.Redis(host=_redis_host, port=_redis_port, db=_redis_db, decode_responses=True)
+    redis_client.ping()
+except Exception as _e:
+    logger.warning(f'Redis nao disponivel (bloco 2): {_e}')
+    redis_client = None
+CACHE_TTL = int(os.getenv('CACHE_TTL', 300))
 
 # Funcoes para usuarios e autenticacao
 def init_users():
